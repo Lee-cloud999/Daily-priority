@@ -642,21 +642,37 @@ let editingUp=null;document.getElementById("cancelDateEdit").onclick=()=>{editin
 document.getElementById("saveDateEdit").onclick=()=>{const v=document.getElementById("editUpcomingDate").value,a=localUpcoming(),i=a.findIndex(x=>x.id===editingUp);if(v&&i>=0){a[i].date=v;setLocalUpcoming(a);cloudUpcoming(a);renderUpcoming()}editingUp=null;document.getElementById("dateEditPop").style.display="none"};
 
 function allDays(){
- const dates=new Set();
- Object.keys(localStorage).forEach(k=>{
-   if(k.startsWith(DAY_PREFIX))dates.add(k.slice(DAY_PREFIX.length));
-   else if(k.startsWith(LEGACY_PREFIX))dates.add(k.slice(LEGACY_PREFIX.length));
-   else if(k.startsWith(RECOVERY_PREFIX))dates.add(k.slice(RECOVERY_PREFIX.length));
- });
- return [...dates].map(date=>{
-   if(isLegacyDate(date)){
-     const raw=rawLegacyForDate(date);
-     return {date,data:normalizeLegacy(raw)};
-   }
-   return {date,data:localDay(date)};
- }).filter(x=>dayHasContent(x.data)).sort((a,b)=>b.date.localeCompare(a.date))
+  const dates=new Set();
+  Object.keys(localStorage).forEach(k=>{
+    if(k.startsWith(DAY_PREFIX))dates.add(k.slice(DAY_PREFIX.length));
+    else if(k.startsWith(LEGACY_PREFIX))dates.add(k.slice(LEGACY_PREFIX.length));
+    else if(k.startsWith(RECOVERY_PREFIX))dates.add(k.slice(RECOVERY_PREFIX.length));
+  });
+
+  // 2026-09-23~25 are preserved legacy records. Add them explicitly whenever
+  // a recovered/original payload exists, so Archive never loses the bridge.
+  ["2026-09-23","2026-09-24","2026-09-25"].forEach(date=>{
+    try{
+      const raw=rawLegacyForDate(date);
+      if(raw && legacyContentScore(raw)>0)dates.add(date);
+    }catch(e){}
+  });
+
+  return [...dates].map(date=>{
+    try{
+      if(isLegacyDate(date)){
+        const raw=rawLegacyForDate(date);
+        if(!raw || legacyContentScore(raw)<=0)return null;
+        return {date,data:normalizeLegacy(raw),legacy:true};
+      }
+      return {date,data:localDay(date),legacy:false};
+    }catch(e){
+      console.warn("archive date skipped",date,e);
+      return null;
+    }
+  }).filter(x=>x && (x.legacy || dayHasContent(x.data)))
+    .sort((a,b)=>b.date.localeCompare(a.date));
 }
-function dayHasContent(d){return !!(d.focus||d.breakfast||d.lunch||d.dinner||d.memo||areas.some(a=>(d[a]||[]).some(x=>x.text?.trim()||x.state!=="empty")))}
 function buildArchive(){
  const dates=document.getElementById("archiveDates"),u=document.getElementById("unfinishedList"),days=allDays();
  dates.innerHTML=days.length?days.map(({date,data})=>`<div class="archive-record"><div class="archive-record-main"><div class="archive-focus">${esc(data.focus||date)}</div>${data.focus?`<div class="archive-record-date">${date}</div>`:""}</div><button class="archive-open" data-open="${date}">열기</button></div>`).join(""):`<div class="archive-empty">아직 저장된 기록이 없어요.</div>`;
@@ -782,6 +798,17 @@ async function recoverLegacyHistory(user){
      bs.forEach(b=>{const records=b.data().records||{};wanted.forEach(date=>{if(records[date])saveRecoveredLegacy(date,records[date],"backup:"+b.id)})});
    }catch{}
  }
+ // legacy archive bridge: preserve original payload, only ensure Archive can discover it.
+ ["2026-09-23","2026-09-24","2026-09-25"].forEach(date=>{
+   try{
+     const raw=rawLegacyForDate(date);
+     if(raw && legacyContentScore(raw)>0 && !localStorage.getItem(RECOVERY_PREFIX+date)){
+       localStorage.setItem(RECOVERY_PREFIX+date,JSON.stringify(raw));
+     }
+   }catch(e){}
+ });
+ try{buildArchive()}catch(e){}
+
 }
 
 onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{await recoverLegacyHistory(user);
