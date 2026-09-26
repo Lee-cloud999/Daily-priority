@@ -273,6 +273,12 @@ button,input,textarea,select{-webkit-appearance:none}
   -webkit-user-select:none!important;
 }
 
+
+.sync-diag{margin:8px 0 12px;padding:10px 12px;border:1px solid #ded8cf;border-radius:10px;background:#fffdf8;font-size:12px;line-height:1.55;color:#5d5952;white-space:pre-wrap}
+.sync-diag-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.sync-diag-head button{border:0;background:transparent;color:#777;font:inherit}
+.sync-mini{cursor:pointer}
+
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -283,7 +289,10 @@ button,input,textarea,select{-webkit-appearance:none}
 </head><body>
 <div class="wrap"><main class="paper" id="todayView">
 <div class="sync-mini"><span class="sync-dot" id="syncDot"></span><span id="syncText">이 기기에 저장됨</span><button class="account-mini" id="accountBtn" type="button">계정 · 백업</button></div>
-<div class="legacy-recovery-note">2026.09.23–25 · 보존된 과거 기록</div><header class="top"><div class="title">DAILY PRIORITY</div><div class="rule"></div><div class="date"><button id="prevProto" style="border:0;background:transparent">‹</button><span id="protoDate">2026. 09. 26 (토)</span><button id="nextProto" style="border:0;background:transparent">›</button></div></header>
+<div id="syncDiag" class="sync-diag" hidden>
+ <div class="sync-diag-head"><b>동기화 진단</b><button id="syncDiagClose" type="button">닫기</button></div>
+ <div id="syncDiagBody">확인 중…</div>
+</div><div class="legacy-recovery-note">2026.09.23–25 · 보존된 과거 기록</div><header class="top"><div class="title">DAILY PRIORITY</div><div class="rule"></div><div class="date"><button id="prevProto" style="border:0;background:transparent">‹</button><span id="protoDate">2026. 09. 26 (토)</span><button id="nextProto" style="border:0;background:transparent">›</button></div></header>
 <div class="focus"><span>FOCUS</span><input placeholder="오늘 가장 집중하고 싶은 것"></div>
 <section class="matrix">
 <div class="quad q1"><div class="qhead"><div class="head-copy"><b>집안일</b><small>오늘 집에서 할 일</small></div><button class="section-add head-add" data-target="house">＋</button></div><div class="items" id="house"></div></div>
@@ -435,7 +444,28 @@ function shift(k,n){const [y,m,d]=k.split("-").map(Number),x=new Date(y,m-1,d);x
 function fmt(k){const [y,m,d]=k.split("-").map(Number),w=["일","월","화","수","목","금","토"][new Date(y,m-1,d).getDay()];return `${y}. ${String(m).padStart(2,"0")}. ${String(d).padStart(2,"0")} (${w})`}
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 function uid(){return crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`}
-function sync(t,on=false){document.getElementById("syncText").textContent=t;document.getElementById("syncDot").classList.toggle("on",on)}
+let lastSyncError="";
+function errorText(e){
+ if(!e)return "알 수 없는 오류";
+ return [e.code,e.message].filter(Boolean).join(" · ")||String(e);
+}
+function diag(extra=""){
+ const box=document.getElementById("syncDiagBody");if(!box)return;
+ const user=currentUser?currentUser.email:"로그인 안 됨";
+ const online=navigator.onLine?"온라인":"브라우저 오프라인";
+ const localCount=Object.keys(localStorage).filter(k=>k.startsWith(DAY_PREFIX)||k.startsWith(LEGACY_PREFIX)||k.startsWith(RECOVERY_PREFIX)).length;
+ box.textContent=`계정: ${user}\n네트워크: ${online}\n현재 날짜: ${currentKey}\n기기 저장 기록: ${localCount}개\n마지막 오류: ${lastSyncError||"없음"}${extra?"\n"+extra:""}`;
+}
+function sync(t,on=false){
+ document.getElementById("syncText").textContent=t;
+ document.getElementById("syncDot").classList.toggle("on",on);
+ diag();
+}
+document.querySelector(".sync-mini").addEventListener("click",e=>{
+ if(e.target.closest("#accountBtn"))return;
+ const p=document.getElementById("syncDiag");p.hidden=!p.hidden;if(!p.hidden)diag();
+});
+document.getElementById("syncDiagClose").onclick=()=>document.getElementById("syncDiag").hidden=true;
 
 function isLegacyDate(k){return k<NEW_SCHEMA_START}
 function stripMeta(x={}){const z={...x};delete z.updatedAt;delete z.deviceUpdatedAt;delete z.schemaVersion;return z}
@@ -589,10 +619,21 @@ function saveDaySnapshot(key){
  // 9/23–9/25 are immutable legacy snapshots. Opening/navigating them must never rewrite them.
  if(isLegacyDate(key))return;
  // KEY IS CAPTURED AT INPUT TIME. Never read currentKey later in the debounce.
- const data=readRenderedDay(key); setLocalDay(key,data); queueCloudDay(key,structuredClone(data));
+ const data=readRenderedDay(key); setLocalDay(key,data); buildArchive(); queueCloudDay(key,structuredClone(data));
 }
 function queueCloudDay(key,data){
- clearTimeout(timers.get(key)); timers.set(key,setTimeout(async()=>{if(!currentUser||remoteApplying)return;sync("동기화 중…");try{await setDoc(doc(db,"users",currentUser.uid,"daily_priority",key),{...data,schemaVersion:CURRENT_SCHEMA,deviceUpdatedAt:Date.now(),updatedAt:serverTimestamp()});sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}},300));
+ clearTimeout(timers.get(key));
+ timers.set(key,setTimeout(async()=>{
+   if(remoteApplying)return;
+   if(!currentUser){lastSyncError="auth/no-user · Firebase 로그인 상태가 아닙니다.";sync("로그인 필요 · 기기에 저장됨");return}
+   sync("동기화 중…");
+   try{
+     await setDoc(doc(db,"users",currentUser.uid,"daily_priority",key),{...data,schemaVersion:CURRENT_SCHEMA,deviceUpdatedAt:Date.now(),updatedAt:serverTimestamp()});
+     lastSyncError="";sync("동기화됨",true);buildArchive();
+   }catch(e){
+     lastSyncError=errorText(e);sync("동기화 실패 · 눌러서 원인 확인");
+   }
+ },300));
 }
 function fit(el){el.style.height="auto";el.style.height=el.scrollHeight+"px"}
 function renderDay(key){
@@ -628,7 +669,12 @@ function upRow(x){
 function renderUpcoming(){const box=document.getElementById("upcoming");box.innerHTML="";localUpcoming().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>box.appendChild(upRow(x)))}
 function refreshUpcoming(){renderUpcoming()}
 function saveUpcomingMutation(x){const a=localUpcoming(),i=a.findIndex(z=>z.id===x.id);if(i>=0)a[i]={...x};setLocalUpcoming(a);renderUpcoming();cloudUpcoming(a)}
-let upTimer=null;function cloudUpcoming(a){clearTimeout(upTimer);upTimer=setTimeout(async()=>{if(!currentUser||remoteApplying)return;try{await setDoc(doc(db,"users",currentUser.uid,"daily_priority_meta","upcoming"),{items:a,updatedAt:serverTimestamp()});sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}},250)}
+let upTimer=null;function cloudUpcoming(a){clearTimeout(upTimer);upTimer=setTimeout(async()=>{
+ if(remoteApplying)return;
+ if(!currentUser){lastSyncError="auth/no-user · Firebase 로그인 상태가 아닙니다.";sync("로그인 필요 · 기기에 저장됨");return}
+ try{await setDoc(doc(db,"users",currentUser.uid,"daily_priority_meta","upcoming"),{items:a,updatedAt:serverTimestamp()});lastSyncError="";sync("동기화됨",true)}
+ catch(e){lastSyncError=errorText(e);sync("동기화 실패 · 눌러서 원인 확인")}
+},250)}
 const datePick=document.getElementById("datePick");
 datePick.value=todayKey();
 function addUpcomingFromEntry(){
@@ -740,16 +786,28 @@ document.getElementById("loginBtn").onclick=async()=>{try{await signInWithEmailA
 document.getElementById("signupBtn").onclick=async()=>{try{await createUserWithEmailAndPassword(auth,authEmail.value.trim(),authPassword.value);msg.textContent="계정을 만들었어요."}catch{msg.textContent="계정을 만들지 못했어요."}};
 document.getElementById("logoutBtn").onclick=()=>signOut(auth);
 async function initialPull(user){
- const snap=await getDocs(collection(db,"users",user.uid,"daily_priority"));remoteApplying=true;snap.forEach(x=>{const z=x.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(x.id,z)});
- const ms=await getDocs(collection(db,"users",user.uid,"daily_priority_meta"));ms.forEach(x=>{if(x.id==="upcoming")setLocalUpcoming(x.data().items||[])});
- remoteApplying=false;renderDay(currentKey);renderUpcoming()
+ try{
+   const snap=await getDocs(collection(db,"users",user.uid,"daily_priority"));
+   remoteApplying=true;
+   snap.forEach(x=>{const z=x.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(x.id,z)});
+   const ms=await getDocs(collection(db,"users",user.uid,"daily_priority_meta"));
+   ms.forEach(x=>{if(x.id==="upcoming")setLocalUpcoming(x.data().items||[])});
+   remoteApplying=false;renderDay(currentKey);renderUpcoming();buildArchive();
+   lastSyncError="";diag(`Firebase 날짜 기록: ${snap.size}개`);
+ }catch(e){remoteApplying=false;lastSyncError=errorText(e);diag();throw e}
 }
 function listen(user){
- dayUnsub?.();upUnsub?.();dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{remoteApplying=true;snap.docChanges().forEach(ch=>{if(ch.type==="removed"){if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(ch.doc.id,z)}});remoteApplying=false;
- // Never rebuild the live form while the user is typing. This prevents spaces/IME input from being swallowed.
- if(!isActivelyTyping())renderDay(currentKey);buildArchive();
- sync("동기화됨",true)});
- upUnsub=onSnapshot(doc(db,"users",user.uid,"daily_priority_meta","upcoming"),x=>{if(x.exists()){remoteApplying=true;setLocalUpcoming(x.data().items||[]);remoteApplying=false;renderUpcoming()}});
+ dayUnsub?.();upUnsub?.();
+ dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{
+   remoteApplying=true;
+   snap.docChanges().forEach(ch=>{if(ch.type==="removed"){if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(ch.doc.id,z)}});
+   remoteApplying=false;
+   if(!isActivelyTyping())renderDay(currentKey);
+   buildArchive();lastSyncError="";sync("동기화됨",true);
+ },e=>{remoteApplying=false;lastSyncError=errorText(e);sync("실시간 동기화 실패 · 눌러서 원인 확인")});
+ upUnsub=onSnapshot(doc(db,"users",user.uid,"daily_priority_meta","upcoming"),x=>{
+   if(x.exists()){remoteApplying=true;setLocalUpcoming(x.data().items||[]);remoteApplying=false;renderUpcoming()}
+ },e=>{lastSyncError=errorText(e);sync("일정 동기화 실패 · 눌러서 원인 확인")});
 }
 
 function legacyContentScore(raw={}){
@@ -812,18 +870,35 @@ async function recoverLegacyHistory(user){
 
 }
 
-onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{await recoverLegacyHistory(user);
-await initialPull(user);
-listen(user);
-if(sessionStorage.getItem("daily-priority-active-view")==="archive"){
-  document.querySelector(".wrap").style.display="none";
-  document.getElementById("archiveView").style.display="block";
-  buildArchive();
-}else{
-  renderDay(currentKey);
-}
-refreshArchiveIfOpen();
-sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
+onAuthStateChanged(auth,async user=>{
+ currentUser=user;
+ document.getElementById("signedOut").style.display=user?"none":"block";
+ document.getElementById("signedIn").style.display=user?"block":"none";
+ document.getElementById("userEmail").textContent=user?.email||"";
+ if(user){
+   sync("과거 기록 확인 중…");
+   try{
+     await recoverLegacyHistory(user);
+     await initialPull(user);
+     listen(user);
+     buildArchive();
+     if(sessionStorage.getItem("daily-priority-active-view")==="archive"){
+       document.querySelector(".wrap").style.display="none";
+       document.getElementById("archiveView").style.display="block";
+       buildArchive();
+     }else renderDay(currentKey);
+     lastSyncError="";sync("동기화됨",true);
+   }catch(e){
+     lastSyncError=errorText(e);
+     buildArchive();
+     sync("동기화 실패 · 눌러서 원인 확인");
+   }
+ }else{
+   dayUnsub?.();upUnsub?.();
+   lastSyncError="auth/no-user · 로그인되지 않았습니다.";
+   buildArchive();sync("로그인 필요 · 기기에 저장됨");
+ }
+});
 document.getElementById("backupBtn").onclick=async()=>{if(!currentUser)return;const records={};allDays().forEach(x=>records[x.date]=x.data);const id=new Date().toISOString().replace(/[:.]/g,"-");await setDoc(doc(db,"users",currentUser.uid,"daily_priority_backups",id),{records,upcoming:localUpcoming(),deviceCreatedAt:Date.now(),createdAt:serverTimestamp()});msg.textContent="백업했어요."};
 
 renderDay(todayKey());renderUpcoming();
