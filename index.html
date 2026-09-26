@@ -374,7 +374,7 @@ button,input,textarea,select{-webkit-appearance:none}
   </div>
   <div id="signedIn" style="display:none">
    <p><b id="userEmail"></b></p>
-   <div id="legacyPreserveBox" style="margin:8px 0 10px;padding:10px;border:1px solid #e7e1d9;border-radius:12px;background:#faf8f4"><div style="font-size:12px;color:#716d66;margin-bottom:7px">모바일에 남은 23~25일 기록을 Firebase에 보존합니다.</div><button id="preserveLegacyBtn" type="button" style="width:100%;border:0;border-radius:10px;padding:10px;background:#e9eee5;font-family:inherit;color:#4f6654">23~25일 기록 보존하기</button><div id="legacyPreserveStatus" style="font-size:11px;color:#777;margin-top:7px;line-height:1.5"></div></div><div id="lastBackupText" style="font-size:12px;color:#8b867e;margin:4px 0 8px">마지막 백업 없음</div><div class="auth-actions"><button id="backupBtn">지금 백업</button><button id="logoutBtn">로그아웃</button></div>
+   <div id="lastBackupText" style="font-size:12px;color:#8b867e;margin:4px 0 8px">마지막 백업 없음</div><div class="auth-actions"><button id="backupBtn">지금 백업</button><button id="logoutBtn">로그아웃</button></div>
   </div>
   <div class="auth-msg" id="authMsg"></div>
  </div>
@@ -903,27 +903,6 @@ async function pullPreservedLegacy(user){
   }catch(e){console.warn("preserved history read",date,e)}
  }
 }
-async function preserveLegacyToFirebase(){
- const status=document.getElementById("legacyPreserveStatus"),btn=document.getElementById("preserveLegacyBtn");
- if(!currentUser){if(status)status.textContent="먼저 로그인해주세요.";return}
- const result=[];if(btn)btn.disabled=true;
- try{
-  for(const date of ["2026-09-23","2026-09-24","2026-09-25"]){
-   const raw=rawLegacyForDate(date),score=anyRecordScore(raw);
-   if(score<=0){result.push(`${date.slice(8)}일: 원본 없음`);continue}
-   const ref=doc(db,"users",currentUser.uid,"daily_priority_preserved",date),old=await getDoc(ref);
-   const oldRaw=old.exists()?(old.data().record||{}):{};
-   if(!old.exists()||score>anyRecordScore(oldRaw)){
-    await setDoc(ref,{record:stripMeta(raw),source:"manual-preserve",deviceCreatedAt:Date.now(),updatedAt:serverTimestamp()});
-   }
-   const check=await getDoc(ref),ok=check.exists()&&anyRecordScore(check.data().record||{})>0;
-   result.push(`${date.slice(8)}일: ${ok?"✓ 보존 확인":"확인 실패"}`);
-   if(ok)saveRecoveredLegacy(date,check.data().record,"firebase-preserved-verified");
-  }
-  if(status)status.textContent=result.join(" · ");buildArchive();
- }catch(e){lastSyncError=errorText(e);sync("과거 기록 보존 실패 · 눌러서 원인 확인");if(status)status.textContent="보존 실패 · 동기화 상태에서 원인을 확인해주세요."}
- finally{if(btn)btn.disabled=false}
-}
 async function recoverLegacyHistory(user){
  const wanted=["2026-09-23","2026-09-24","2026-09-25"];
  // 1. Preserve any still-existing original local records first.
@@ -1010,7 +989,6 @@ document.getElementById("backupBtn").onclick=async()=>{
  }catch(e){lastSyncError=errorText(e);msg.textContent="백업 실패 · 동기화 상태에서 원인을 확인해주세요."}
 };
 
-document.getElementById("preserveLegacyBtn")?.addEventListener("click",preserveLegacyToFirebase);
 renderDay(todayKey());renderUpcoming();
 try{
  if(sessionStorage.getItem("daily-priority-active-view")==="archive"){
