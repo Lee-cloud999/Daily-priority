@@ -550,16 +550,19 @@ function allDays(){
    else if(k.startsWith(RECOVERY_PREFIX))dates.add(k.slice(RECOVERY_PREFIX.length));
  });
  return [...dates].map(date=>{
-   if(isLegacyDate(date)){
-     const raw=rawLegacyForDate(date);
-     return {date,data:normalizeLegacy(raw)};
-   }
-   return {date,data:localDay(date)};
- }).filter(x=>dayHasContent(x.data)).sort((a,b)=>b.date.localeCompare(a.date))
+   try{
+     if(isLegacyDate(date)){
+       const raw=rawLegacyForDate(date);
+       return {date,data:normalizeLegacy(raw)};
+     }
+     return {date,data:localDay(date)};
+   }catch(e){console.warn("skip archive record",date,e);return null}
+ }).filter(x=>x&&dayHasContent(x.data)).sort((a,b)=>b.date.localeCompare(a.date))
 }
 function dayHasContent(d){return !!(d.focus||d.breakfast||d.lunch||d.dinner||d.memo||areas.some(a=>(d[a]||[]).some(x=>x.text?.trim()||x.state!=="empty")))}
 function buildArchive(){
- const dates=document.getElementById("archiveDates"),u=document.getElementById("unfinishedList"),days=allDays();
+ const dates=document.getElementById("archiveDates"),u=document.getElementById("unfinishedList");
+ let days=[];try{days=allDays()}catch(e){console.warn("archive data",e);days=[]}
  dates.innerHTML=days.length?days.map(({date,data})=>`<div class="archive-record"><div class="archive-record-main"><div class="archive-focus">${esc(data.focus||date)}</div>${data.focus?`<div class="archive-record-date">${date}</div>`:""}</div><button class="archive-open" data-open="${date}">열기</button></div>`).join(""):`<div class="archive-empty">아직 저장된 기록이 없어요.</div>`;
  dates.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{renderDay(b.dataset.open);showToday(false)});
  const unfinished=[];days.forEach(({date,data})=>areas.forEach(a=>data[a].forEach(x=>{if(x.state==="undone"&&x.text.trim())unfinished.push({date,area:{house:"집안일",kids:"육아",hobby:"취미",other:"그 외"}[a],text:x.text})})));
@@ -574,12 +577,19 @@ function showToday(goToday=true){
  document.getElementById("protoTodayBtn").style.color="#292824";document.getElementById("protoArchiveBtn").style.color="#9b978f";window.scrollTo(0,0)
 }
 function showArchive(){
- saveDaySnapshot(currentKey);buildArchive();
- document.querySelector(".wrap").style.display="none";
- document.getElementById("archiveView").style.display="block";
- document.getElementById("protoTodayBtn").style.color="#9b978f";document.getElementById("protoArchiveBtn").style.color="#292824";window.scrollTo(0,0)
+ // Open the archive UI first. Saving/syncing must never block navigation on iPad PWA.
+ const wrap=document.querySelector(".wrap"), archive=document.getElementById("archiveView");
+ wrap.style.display="none";
+ archive.style.display="block";
+ document.getElementById("protoTodayBtn").style.color="#9b978f";
+ document.getElementById("protoArchiveBtn").style.color="#292824";
+ window.scrollTo(0,0);
+ try{buildArchive()}catch(e){console.warn("archive render",e)}
+ // Persist the current day only after the archive is already visible.
+ setTimeout(()=>{try{saveDaySnapshot(currentKey)}catch(e){}},0);
 }
-document.getElementById("protoTodayBtn").onclick=()=>showToday(true);document.getElementById("protoArchiveBtn").onclick=showArchive;
+document.getElementById("protoTodayBtn").addEventListener("click",()=>showToday(true));
+document.getElementById("protoArchiveBtn").addEventListener("click",e=>{e.preventDefault();e.stopPropagation();showArchive()});
 
 // Auth + cloud. Each date is a separate Firestore document; upcoming is a separate global document.
 const pop=document.getElementById("authPop"),msg=document.getElementById("authMsg");document.getElementById("accountBtn").onclick=()=>pop.classList.add("show");document.getElementById("authClose").onclick=()=>pop.classList.remove("show");pop.onclick=e=>{if(e.target===pop)pop.classList.remove("show")};
