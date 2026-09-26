@@ -104,8 +104,8 @@
 .swipe-content.done input.text,.swipe-content.done .up-text{
  color:#aaa!important;text-decoration:line-through!important;text-decoration-thickness:1px;
 }
-.archive-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#eeeae3;border-radius:12px;padding:4px;margin:14px 0}
-.archive-tab{border:0;border-radius:9px;background:transparent;padding:9px 6px;font-family:inherit;font-size:14px;color:#8c887f}
+.archive-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;background:#eeeae3;border-radius:12px;padding:4px;margin:14px 0;white-space:nowrap}
+.archive-tab{border:0;border-radius:9px;background:transparent;padding:9px 4px;font-family:inherit;font-size:13px;color:#8c887f;white-space:nowrap;min-width:0}
 .archive-tab.active{background:#fff;color:#292824;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 .archive-pane{display:none}.archive-pane.active{display:block}
 .archive-record{border-top:1px solid #eee9e2;padding:12px 2px;display:flex;align-items:center;gap:10px}
@@ -718,37 +718,37 @@ function dayHasContent(d){
  if(String(d.breakfast||"").trim()||String(d.lunch||"").trim()||String(d.dinner||"").trim()||String(d.memo||"").trim())return true;
  return areas.some(a=>Array.isArray(d[a])&&d[a].some(x=>String(x?.text||"").trim()||x?.state==="done"||x?.state==="undone"));
 }
+let archiveCloudDays=new Map();
+function archiveDayFromRaw(date,raw){
+ try{
+  if(isLegacyDate(date)){
+   const localRaw=rawLegacyForDate(date);
+   const chosen=(localRaw&&legacyContentScore(localRaw)>=legacyContentScore(raw||{}))?localRaw:(raw||localRaw||{});
+   if(!chosen||legacyContentScore(chosen)<=0)return null;
+   return {date,data:normalizeDay(chosen),legacy:true};
+  }
+  const local=localDay(date),remote=raw?normalizeDay(raw):null;
+  const chosen=remote&&contentScore(remote)>contentScore(local)?remote:local;
+  return dayHasContent(chosen)?{date,data:chosen,legacy:false}:null;
+ }catch(e){return null}
+}
+async function refreshArchiveFromCloud(user){
+ if(!user)return;
+ try{
+  const snap=await getDocs(collection(db,"users",user.uid,"daily_priority"));
+  const next=new Map();snap.forEach(d=>next.set(d.id,d.data()));archiveCloudDays=next;buildArchive();
+ }catch(e){console.warn("archive cloud refresh",e)}
+}
 function allDays(){
-  const dates=new Set();
-  Object.keys(localStorage).forEach(k=>{
-    if(k.startsWith(DAY_PREFIX))dates.add(k.slice(DAY_PREFIX.length));
-    else if(k.startsWith(LEGACY_PREFIX))dates.add(k.slice(LEGACY_PREFIX.length));
-    else if(k.startsWith(RECOVERY_PREFIX))dates.add(k.slice(RECOVERY_PREFIX.length));
-  });
-
-  // 2026-09-23~25 are preserved legacy records. Add them explicitly whenever
-  // a recovered/original payload exists, so Archive never loses the bridge.
-  ["2026-09-23","2026-09-24","2026-09-25"].forEach(date=>{
-    try{
-      const raw=rawLegacyForDate(date);
-      if(raw && legacyContentScore(raw)>0)dates.add(date);
-    }catch(e){}
-  });
-
-  return [...dates].map(date=>{
-    try{
-      if(isLegacyDate(date)){
-        const raw=rawLegacyForDate(date);
-        if(!raw || legacyContentScore(raw)<=0)return null;
-        return {date,data:normalizeDay(raw),legacy:true};
-      }
-      return {date,data:localDay(date),legacy:false};
-    }catch(e){
-      console.warn("archive date skipped",date,e);
-      return null;
-    }
-  }).filter(x=>x && (x.legacy || dayHasContent(x.data)))
-    .sort((a,b)=>b.date.localeCompare(a.date));
+ const dates=new Set();
+ Object.keys(localStorage).forEach(k=>{
+  if(k.startsWith(DAY_PREFIX))dates.add(k.slice(DAY_PREFIX.length));
+  else if(k.startsWith(LEGACY_PREFIX))dates.add(k.slice(LEGACY_PREFIX.length));
+  else if(k.startsWith(RECOVERY_PREFIX))dates.add(k.slice(RECOVERY_PREFIX.length));
+ });
+ archiveCloudDays.forEach((_,date)=>dates.add(date));
+ ["2026-09-23","2026-09-24","2026-09-25"].forEach(date=>{try{if(legacyContentScore(rawLegacyForDate(date))>0)dates.add(date)}catch(e){}});
+ return [...dates].map(date=>archiveDayFromRaw(date,archiveCloudDays.get(date))).filter(Boolean).sort((a,b)=>b.date.localeCompare(a.date));
 }
 function buildArchive(){
  const dates=document.getElementById("archiveDates"),u=document.getElementById("unfinishedList");
@@ -839,7 +839,8 @@ async function initialPull(user){
  try{
    const snap=await getDocs(collection(db,"users",user.uid,"daily_priority"));
    remoteApplying=true;
-   snap.forEach(x=>{const z=x.data();delete z.updatedAt;delete z.deviceUpdatedAt;safeStoreCloudDay(x.id,z)});
+   archiveCloudDays=new Map();
+   snap.forEach(x=>{const raw=x.data();archiveCloudDays.set(x.id,raw);const z={...raw};delete z.updatedAt;delete z.deviceUpdatedAt;safeStoreCloudDay(x.id,z)});
    const ms=await getDocs(collection(db,"users",user.uid,"daily_priority_meta"));
    ms.forEach(x=>{if(x.id==="upcoming")setLocalUpcoming(x.data().items||[])});
    remoteApplying=false;renderDay(currentKey);renderUpcoming();buildArchive();
@@ -850,13 +851,13 @@ function listen(user){
  dayUnsub?.();upUnsub?.();
  dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{
    remoteApplying=true;
-   snap.docChanges().forEach(ch=>{if(ch.type==="removed"){if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;safeStoreCloudDay(ch.doc.id,z)}});
+   snap.docChanges().forEach(ch=>{if(ch.type==="removed"){archiveCloudDays.delete(ch.doc.id);if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const raw=ch.doc.data();archiveCloudDays.set(ch.doc.id,raw);const z={...raw};delete z.updatedAt;delete z.deviceUpdatedAt;safeStoreCloudDay(ch.doc.id,z)}});
    remoteApplying=false;
    if(!isActivelyTyping())renderDay(currentKey);
    buildArchive();lastSyncError="";sync("동기화됨",true);
  },e=>{remoteApplying=false;lastSyncError=errorText(e);sync("실시간 동기화 실패 · 눌러서 원인 확인")});
  upUnsub=onSnapshot(doc(db,"users",user.uid,"daily_priority_meta","upcoming"),x=>{
-   if(x.exists()){remoteApplying=true;setLocalUpcoming(x.data().items||[]);remoteApplying=false;renderUpcoming()}
+   if(x.exists()){remoteApplying=true;setLocalUpcoming(x.data().items||[]);remoteApplying=false;renderUpcoming();buildArchive()}
  },e=>{lastSyncError=errorText(e);sync("일정 동기화 실패 · 눌러서 원인 확인")});
 }
 
@@ -930,6 +931,7 @@ onAuthStateChanged(auth,async user=>{
    try{
      await recoverLegacyHistory(user);
      await initialPull(user);
+     await refreshArchiveFromCloud(user);
      listen(user);
      buildArchive();
      if(sessionStorage.getItem("daily-priority-active-view")==="archive"){
@@ -937,6 +939,7 @@ onAuthStateChanged(auth,async user=>{
        document.getElementById("archiveView").style.display="block";
        buildArchive();
      }else renderDay(currentKey);
+     await loadLastBackup();
      lastSyncError="";sync("동기화됨",true);
    }catch(e){
      lastSyncError=errorText(e);
