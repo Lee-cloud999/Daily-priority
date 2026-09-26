@@ -703,10 +703,18 @@ document.addEventListener("dp:viewchange",e=>{
  if(v==="archive"){
    try{saveDaySnapshot(currentKey)}catch(err){}
    try{buildArchive()}catch(err){console.warn("archive build",err)}
+   setTimeout(()=>{try{buildArchive()}catch(err){}},0);
  }else if(v==="today"){
    try{renderDay(todayKey())}catch(err){console.warn("today render",err)}
  }
 });
+
+function refreshArchiveIfOpen(){
+  const archive=document.getElementById("archiveView");
+  if(archive && archive.style.display==="block"){
+    try{buildArchive()}catch(e){console.warn("archive refresh",e)}
+  }
+}
 
 
 // Auth + cloud. Each date is a separate Firestore document; upcoming is a separate global document.
@@ -776,10 +784,18 @@ async function recoverLegacyHistory(user){
  }
 }
 
-onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{await recoverLegacyHistory(user);await initialPull(user);listen(user);
-if(sessionStorage.getItem("daily-priority-active-view")==="archive"){buildArchive();document.querySelector(".wrap").style.display="none";document.getElementById("archiveView").style.display="block"}
-else renderDay(currentKey);
-buildArchive();sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
+onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{await recoverLegacyHistory(user);
+await initialPull(user);
+listen(user);
+if(sessionStorage.getItem("daily-priority-active-view")==="archive"){
+  document.querySelector(".wrap").style.display="none";
+  document.getElementById("archiveView").style.display="block";
+  buildArchive();
+}else{
+  renderDay(currentKey);
+}
+refreshArchiveIfOpen();
+sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
 document.getElementById("backupBtn").onclick=async()=>{if(!currentUser)return;const records={};allDays().forEach(x=>records[x.date]=x.data);const id=new Date().toISOString().replace(/[:.]/g,"-");await setDoc(doc(db,"users",currentUser.uid,"daily_priority_backups",id),{records,upcoming:localUpcoming(),deviceCreatedAt:Date.now(),createdAt:serverTimestamp()});msg.textContent="백업했어요."};
 
 renderDay(todayKey());renderUpcoming();
