@@ -687,6 +687,12 @@ document.getElementById("upHeadAdd").onclick=()=>{const inp=document.getElementB
 let editingUp=null;document.getElementById("cancelDateEdit").onclick=()=>{editingUp=null;document.getElementById("dateEditPop").style.display="none"};
 document.getElementById("saveDateEdit").onclick=()=>{const v=document.getElementById("editUpcomingDate").value,a=localUpcoming(),i=a.findIndex(x=>x.id===editingUp);if(v&&i>=0){a[i].date=v;setLocalUpcoming(a);cloudUpcoming(a);renderUpcoming()}editingUp=null;document.getElementById("dateEditPop").style.display="none"};
 
+function dayHasContent(d){
+ if(!d)return false;
+ if(String(d.focus||"").trim())return true;
+ if(String(d.breakfast||"").trim()||String(d.lunch||"").trim()||String(d.dinner||"").trim()||String(d.memo||"").trim())return true;
+ return areas.some(a=>Array.isArray(d[a])&&d[a].some(x=>String(x?.text||"").trim()||x?.state==="done"||x?.state==="undone"));
+}
 function allDays(){
   const dates=new Set();
   Object.keys(localStorage).forEach(k=>{
@@ -721,7 +727,16 @@ function allDays(){
 }
 function buildArchive(){
  const dates=document.getElementById("archiveDates"),u=document.getElementById("unfinishedList");
- let days=[];try{days=allDays()}catch(e){console.error("archive allDays",e);days=[]}
+ let days=[];
+ try{days=allDays()}
+ catch(e){
+   console.error("archive allDays",e);
+   lastSyncError="archive · "+errorText(e);
+   diag();
+   dates.innerHTML=`<div class="archive-empty">보관함을 불러오지 못했어요. 상단 동기화 상태를 눌러 원인을 확인해주세요.</div>`;
+   u.innerHTML=`<div class="archive-empty">미완료 기록을 불러오지 못했어요.</div>`;
+   return;
+ }
  dates.innerHTML=days.length?days.map(({date,data})=>`<div class="archive-record"><div class="archive-record-main"><div class="archive-focus">${esc(data.focus||date)}</div>${data.focus?`<div class="archive-record-date">${date}</div>`:""}</div><button class="archive-open" data-open="${date}">열기</button></div>`).join(""):`<div class="archive-empty">아직 저장된 기록이 없어요.</div>`;
  dates.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{renderDay(b.dataset.open);showToday(false)});
  const unfinished=[];days.forEach(({date,data})=>areas.forEach(a=>data[a].forEach(x=>{if(x.state==="undone"&&x.text.trim())unfinished.push({date,area:{house:"집안일",kids:"육아",hobby:"취미",other:"그 외"}[a],text:x.text})})));
