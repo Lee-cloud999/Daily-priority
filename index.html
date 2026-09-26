@@ -204,6 +204,8 @@ button,input,textarea,select{-webkit-appearance:none}
  .legacy-snapshot .legacy-focus{font-size:13px}
 }
 
+
+.legacy-recovery-note{font-size:10px;color:#8f8a80;text-align:right;margin:-2px 0 8px}
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -214,7 +216,7 @@ button,input,textarea,select{-webkit-appearance:none}
 </head><body>
 <div class="wrap"><main class="paper" id="todayView">
 <div class="sync-mini"><span class="sync-dot" id="syncDot"></span><span id="syncText">이 기기에 저장됨</span><button class="account-mini" id="accountBtn" type="button">계정 · 백업</button></div>
-<header class="top"><div class="title">DAILY PRIORITY</div><div class="rule"></div><div class="date"><button id="prevProto" style="border:0;background:transparent">‹</button><span id="protoDate">2026. 09. 26 (토)</span><button id="nextProto" style="border:0;background:transparent">›</button></div></header>
+<div class="legacy-recovery-note">2026.09.23–25 · 보존된 과거 기록</div><header class="top"><div class="title">DAILY PRIORITY</div><div class="rule"></div><div class="date"><button id="prevProto" style="border:0;background:transparent">‹</button><span id="protoDate">2026. 09. 26 (토)</span><button id="nextProto" style="border:0;background:transparent">›</button></div></header>
 <div class="focus"><span>FOCUS</span><input placeholder="오늘 가장 집중하고 싶은 것"></div>
 <section class="matrix">
 <div class="quad q1"><div class="qhead"><div class="head-copy"><b>집안일</b><small>오늘 집에서 할 일</small></div><button class="section-add head-add" data-target="house">＋</button></div><div class="items" id="house"></div></div>
@@ -317,7 +319,7 @@ import { getFirestore,collection,doc,getDocs,setDoc,deleteDoc,onSnapshot,serverT
 
 const firebaseConfig={apiKey:"AIzaSyCOy8x5kPeJUUqRUjEHRqckT2ReULEoUac",authDomain:"maeum-jogak2.firebaseapp.com",projectId:"maeum-jogak2",storageBucket:"maeum-jogak2.firebasestorage.app",messagingSenderId:"942972843404",appId:"1:942972843404:web:f4102731556db95309d2a9",measurementId:"G-76KT3H2BGQ"};
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app); setPersistence(auth,browserLocalPersistence).catch(()=>{});
-const DAY_PREFIX="daily-priority-v12-day-", LEGACY_PREFIX="daily-priority-day-", UP_KEY="daily-priority-v12-upcoming", NEW_SCHEMA_START="2026-09-26", CURRENT_SCHEMA=2;
+const DAY_PREFIX="daily-priority-v12-day-", LEGACY_PREFIX="daily-priority-day-", RECOVERY_PREFIX="daily-priority-recovered-legacy-", UP_KEY="daily-priority-v12-upcoming", NEW_SCHEMA_START="2026-09-26", CURRENT_SCHEMA=2;
 let currentKey=todayKey(), currentUser=null, remoteApplying=false, dayUnsub=null, upUnsub=null;
 const timers=new Map(), areas=["house","kids","hobby","other"];
 
@@ -425,8 +427,12 @@ function applyState(btn,row,state){btn.dataset.state=state; row.classList.toggle
 
 
 function rawLegacyForDate(k){
- const old=legacyRawLocal(k); if(old)return old;
- const fallback=modernRawLocal(k); return fallback||{};
+ try{
+   const recovered=localStorage.getItem(RECOVERY_PREFIX+k);
+   if(recovered)return JSON.parse(recovered);
+ }catch{}
+ const old=legacyRawLocal(k); if(old&&hasLegacyPayload(old))return old;
+ const fallback=modernRawLocal(k); return fallback||old||{};
 }
 function legacyRawState(v){return v===true||v==="done"?"done":v==="unfinished"||v==="undone"?"unfinished":"empty"}
 function legacySnapshotRow(text,state,areaClass=""){
@@ -573,7 +579,57 @@ function listen(user){
  sync("동기화됨",true)});
  upUnsub=onSnapshot(doc(db,"users",user.uid,"daily_priority_meta","upcoming"),x=>{if(x.exists()){remoteApplying=true;setLocalUpcoming(x.data().items||[]);remoteApplying=false;renderUpcoming()}});
 }
-onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("동기화 중…");try{await initialPull(user);listen(user);sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
+
+function legacyContentScore(raw={}){
+ let n=0;
+ if((raw.focus||"").trim())n+=4;
+ if((raw.notes||"").trim())n+=3;
+ Object.entries(raw).forEach(([k,v])=>{
+   if((/^t-\d+-\d+$/.test(k)||/^extra-t-\d+$/.test(k)) && String(v||"").trim())n+=2;
+   if((/^c-\d+-\d+$/.test(k)||/^extra-c-\d+$/.test(k)) && (v==="done"||v==="unfinished"||v===true))n+=1;
+ });
+ return n;
+}
+function saveRecoveredLegacy(date,raw,source){
+ if(!raw||!hasLegacyPayload(raw)||legacyContentScore(raw)===0)return false;
+ const key=RECOVERY_PREFIX+date;
+ let prev=null;try{prev=JSON.parse(localStorage.getItem(key)||"null")}catch{}
+ if(!prev||legacyContentScore(raw)>legacyContentScore(prev)){
+   localStorage.setItem(key,JSON.stringify({...stripMeta(raw),_recoverySource:source}));
+ }
+ return true;
+}
+async function recoverLegacyHistory(user){
+ const wanted=["2026-09-23","2026-09-24","2026-09-25"];
+ // 1. Preserve any still-existing original local records first.
+ wanted.forEach(date=>{
+   const raw=legacyRawLocal(date);
+   if(raw)saveRecoveredLegacy(date,raw,"local-original");
+ });
+ // 2. Inspect current Firestore docs, but only accept genuine old-schema payloads.
+ try{
+   const live=await getDocs(collection(db,"users",user.uid,"daily_priority"));
+   live.forEach(d=>{if(wanted.includes(d.id))saveRecoveredLegacy(d.id,d.data(),"live-firestore")});
+ }catch{}
+ // 3. Search backups newest -> older and recover the richest original record per date.
+ // Backups are READ ONLY here: nothing is written back to Firestore.
+ try{
+   const qs=query(collection(db,"users",user.uid,"daily_priority_backups"),orderBy("deviceCreatedAt","desc"),limit(50));
+   const bs=await getDocs(qs);
+   bs.forEach(b=>{
+     const records=b.data().records||{};
+     wanted.forEach(date=>{if(records[date])saveRecoveredLegacy(date,records[date],"backup:"+b.id)});
+   });
+ }catch(e){
+   // Fallback for older backups that may not have deviceCreatedAt/index ordering.
+   try{
+     const bs=await getDocs(collection(db,"users",user.uid,"daily_priority_backups"));
+     bs.forEach(b=>{const records=b.data().records||{};wanted.forEach(date=>{if(records[date])saveRecoveredLegacy(date,records[date],"backup:"+b.id)})});
+   }catch{}
+ }
+}
+
+onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{await recoverLegacyHistory(user);await initialPull(user);listen(user);renderDay(currentKey);sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
 document.getElementById("backupBtn").onclick=async()=>{if(!currentUser)return;const records={};allDays().forEach(x=>records[x.date]=x.data);const id=new Date().toISOString().replace(/[:.]/g,"-");await setDoc(doc(db,"users",currentUser.uid,"daily_priority_backups",id),{records,upcoming:localUpcoming(),deviceCreatedAt:Date.now(),createdAt:serverTimestamp()});msg.textContent="백업했어요."};
 
 renderDay(todayKey());renderUpcoming();
