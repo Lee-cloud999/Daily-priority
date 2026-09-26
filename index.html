@@ -176,6 +176,34 @@ button,input,textarea,select{-webkit-appearance:none}
 #todayView.legacy-view .focus input{pointer-events:none}
 #todayView.legacy-view .swipe-content{touch-action:pan-y}
 
+
+/* v16: exact-style historical snapshot for 2026-09-23 ~ 2026-09-25 */
+.legacy-snapshot .date button{border:0;background:transparent;color:#77746d;font-size:24px;padding:0 5px}
+.legacy-snapshot .legacy-focus{flex:1;border-bottom:1px solid #aaa;padding:8px 4px;min-height:35px;font-size:15px}
+.legacy-snapshot .qhead{min-height:auto}
+.legacy-snapshot .legacy-row{display:flex;gap:9px;align-items:center;min-height:39px}
+.legacy-snapshot .legacy-check{width:21px;height:21px;border:2px solid #b8b5ae;border-radius:6px;flex:0 0 auto;background:#fff;position:relative}
+.legacy-snapshot .q1 .legacy-check{border-color:#ee9a9e}.legacy-snapshot .q2 .legacy-check{border-color:#efc56e}.legacy-snapshot .q3 .legacy-check{border-color:#8eb9e5}.legacy-snapshot .q4 .legacy-check{border-color:#8dc9a9}
+.legacy-snapshot .legacy-extra .legacy-check{border-color:#b8a0df}
+.legacy-snapshot .legacy-check.done{background:#999;border-color:#999}.legacy-snapshot .q1 .legacy-check.done{background:#ee9a9e;border-color:#ee9a9e}.legacy-snapshot .q2 .legacy-check.done{background:#efbd58;border-color:#efbd58}.legacy-snapshot .q3 .legacy-check.done{background:#82afe0;border-color:#82afe0}.legacy-snapshot .q4 .legacy-check.done{background:#7fbea0;border-color:#7fbea0}.legacy-snapshot .legacy-extra .legacy-check.done{background:#ad91d9;border-color:#ad91d9}
+.legacy-snapshot .legacy-check.done:after{content:"✓";position:absolute;color:#fff;font-weight:800;font-size:14px;left:3px;top:0}
+.legacy-snapshot .legacy-check.unfinished:after{content:"—";position:absolute;color:#888;font-weight:800;font-size:16px;left:2px;top:-1px}
+.legacy-snapshot .legacy-text{width:100%;border-bottom:1px solid #d3d0c9;padding:7px 2px;min-height:31px;font-size:15px}
+.legacy-snapshot .legacy-row.done .legacy-text{text-decoration:line-through;color:#aaa}
+.legacy-snapshot .legacy-row.unfinished .legacy-text{color:#777}
+.legacy-snapshot .legacy-bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}
+.legacy-snapshot .legacy-bottom .box{min-width:0}
+.legacy-snapshot .legacy-box-title{font-size:13px;letter-spacing:.15em;margin-bottom:8px}
+.legacy-snapshot .legacy-notes-text{white-space:pre-wrap;line-height:1.7;min-height:140px;font-size:15px;border-top:1px solid transparent}
+@media(max-width:650px){
+ .legacy-snapshot .legacy-row{min-height:34px;gap:6px}
+ .legacy-snapshot .legacy-check{width:17px;height:17px}
+ .legacy-snapshot .legacy-check.done:after{font-size:12px;left:2px;top:0}
+ .legacy-snapshot .legacy-check.unfinished:after{font-size:14px;left:1px;top:-2px}
+ .legacy-snapshot .legacy-text{font-size:13px;padding:6px 1px}
+ .legacy-snapshot .legacy-focus{font-size:13px}
+}
+
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -209,7 +237,26 @@ button,input,textarea,select{-webkit-appearance:none}
 <div class="memo-title">메모</div><textarea class="memo" rows="1" placeholder="그 밖의 기록"></textarea>
 </div></div></section>
 <div class="footer">A MORE FOCUSED DAY</div>
-</main></div>
+</main>
+<main class="paper legacy-snapshot" id="legacyView" style="display:none">
+ <div class="sync-mini"><span class="sync-dot on"></span><span>과거 기록 · 원본 보존</span></div>
+ <header class="top"><div class="title">DAILY PRIORITY</div><div class="rule"></div>
+  <div class="date"><button id="legacyPrev" type="button">‹</button><span id="legacyDate"></span><button id="legacyNext" type="button">›</button></div>
+ </header>
+ <div class="focus"><span>FOCUS</span><div class="legacy-focus" id="legacyFocus"></div></div>
+ <section class="matrix">
+  <div class="quad q1"><div class="qhead"><div class="head-copy"><b>집안일</b><small>오늘 집에서 할 일</small></div></div><div class="items" id="legacyHouse"></div></div>
+  <div class="quad q2"><div class="qhead"><div class="head-copy"><b>육아</b><small>아이들과 관련된 일</small></div></div><div class="items" id="legacyKids"></div></div>
+  <div class="quad q3"><div class="qhead"><div class="head-copy"><b>취미</b><small>나를 위한 시간</small></div></div><div class="items" id="legacyHobby"></div></div>
+  <div class="quad q4"><div class="qhead"><div class="head-copy"><b>그 외</b><small>그 밖의 할 일</small></div></div><div class="items" id="legacyOther"></div></div>
+ </section>
+ <section class="bottom legacy-bottom">
+  <div class="box legacy-extra"><div class="legacy-box-title">EXTRA</div><div class="items" id="legacyExtra"></div></div>
+  <div class="box legacy-notes"><div class="legacy-box-title">NOTES &nbsp;|&nbsp; 메모</div><div class="legacy-notes-text" id="legacyNotes"></div></div>
+ </section>
+ <div class="footer">A MORE FOCUSED DAY</div>
+</main>
+</div>
 <section id="archiveView" style="display:none;max-width:980px;margin:0 auto;padding:18px 26px 90px">
   <h2 class="archive-title">보관함</h2>
   <div class="archive-sub">지난 기록과 미완료된 할 일을 모아봐요.</div>
@@ -376,6 +423,41 @@ function installSwipe(w,onDelete){
 function stateNext(s){return s==="empty"?"done":s==="done"?"undone":"empty"}
 function applyState(btn,row,state){btn.dataset.state=state; row.classList.toggle("done",state==="done");row.classList.toggle("unfinished",state==="undone")}
 
+
+function rawLegacyForDate(k){
+ const old=legacyRawLocal(k); if(old)return old;
+ const fallback=modernRawLocal(k); return fallback||{};
+}
+function legacyRawState(v){return v===true||v==="done"?"done":v==="unfinished"||v==="undone"?"unfinished":"empty"}
+function legacySnapshotRow(text,state,areaClass=""){
+ const row=document.createElement("div");row.className="legacy-row "+(state==="done"?"done":state==="unfinished"?"unfinished":"");
+ const ck=document.createElement("span");ck.className="legacy-check "+(state==="done"?"done":state==="unfinished"?"unfinished":"");
+ const tx=document.createElement("div");tx.className="legacy-text";tx.textContent=text||"";
+ row.append(ck,tx);return row;
+}
+function renderLegacySnapshot(key){
+ const raw=rawLegacyForDate(key);
+ document.getElementById("todayView").style.display="none";
+ document.getElementById("legacyView").style.display="block";
+ document.getElementById("legacyDate").textContent=fmt(key);
+ document.getElementById("legacyFocus").textContent=raw.focus||"";
+ const boxes=["legacyHouse","legacyKids","legacyHobby","legacyOther"];
+ boxes.forEach((id,bi)=>{
+   const box=document.getElementById(id);box.innerHTML="";
+   for(let i=0;i<5;i++)box.appendChild(legacySnapshotRow(raw[`t-${bi}-${i}`]||"",legacyRawState(raw[`c-${bi}-${i}`])));
+ });
+ const ex=document.getElementById("legacyExtra");ex.innerHTML="";
+ let idx=[];Object.keys(raw).forEach(k=>{const m=k.match(/^extra-t-(\d+)$/);if(m)idx.push(+m[1])});
+ idx=[...new Set(idx)].sort((a,b)=>a-b);
+ if(!idx.length)idx=[0];
+ idx.forEach(i=>ex.appendChild(legacySnapshotRow(raw[`extra-t-${i}`]||"",legacyRawState(raw[`extra-c-${i}`]))));
+ document.getElementById("legacyNotes").textContent=raw.notes||raw.memo||"";
+}
+function isActivelyTyping(){
+ const a=document.activeElement;
+ return !!(a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA") && a.closest("#todayView"));
+}
+
 function taskRow(area,item,index){
  const w=document.createElement("div");w.className="swipe-wrap";w.dataset.id=item.id;
  w.innerHTML=`<button class="swipe-delete" type="button">제거</button><div class="swipe-content item"><span class="check" role="button" tabindex="0"></span><input class="text" value="${esc(item.text)}"></div>`;
@@ -401,8 +483,12 @@ function queueCloudDay(key,data){
 }
 function fit(el){el.style.height="auto";el.style.height=el.scrollHeight+"px"}
 function renderDay(key){
- currentKey=key;document.getElementById("protoDate").textContent=fmt(key);const d=localDay(key);
- document.getElementById("todayView").classList.toggle("legacy-view",isLegacyDate(key));
+ currentKey=key;
+ if(isLegacyDate(key)){renderLegacySnapshot(key);buildArchive();return}
+ document.getElementById("legacyView").style.display="none";
+ document.getElementById("todayView").style.display="block";
+ document.getElementById("protoDate").textContent=fmt(key);const d=localDay(key);
+ document.getElementById("todayView").classList.remove("legacy-view");
  document.querySelector("#todayView .focus input").value=d.focus;
  for(const a of areas){const box=document.getElementById(a);box.innerHTML="";d[a].forEach((it,i)=>box.appendChild(taskRow(a,it,i)))}
  const ta=[...document.querySelectorAll(".notes textarea")];[d.breakfast,d.lunch,d.dinner,d.memo].forEach((v,i)=>{if(ta[i]){ta[i].value=v;fit(ta[i])}});
@@ -413,6 +499,8 @@ document.querySelectorAll(".notes textarea").forEach(el=>el.addEventListener("in
 document.querySelectorAll(".section-add[data-target]").forEach(b=>b.onclick=()=>{const key=currentKey,d=readRenderedDay(key),a=b.dataset.target;d[a].push({id:uid(),text:"",state:"empty"});setLocalDay(key,d);renderDay(key);queueCloudDay(key,d)});
 document.getElementById("prevProto").onclick=()=>{const old=currentKey;saveDaySnapshot(old);renderDay(shift(old,-1))};
 document.getElementById("nextProto").onclick=()=>{const old=currentKey;saveDaySnapshot(old);renderDay(shift(old,1))};
+document.getElementById("legacyPrev").onclick=()=>renderDay(shift(currentKey,-1));
+document.getElementById("legacyNext").onclick=()=>renderDay(shift(currentKey,1));
 
 function dday(date){const n=Math.round((new Date(date+"T00:00:00")-new Date(currentKey+"T00:00:00"))/86400000);return n===0?"D-DAY":n>0?`D-${n}`:`D+${Math.abs(n)}`}
 function upRow(x){
@@ -457,8 +545,7 @@ document.getElementById("tabRecords").onclick=()=>setArchiveTab(true);document.g
 function showToday(goToday=true){
  document.querySelector(".wrap").style.display="block";
  document.getElementById("archiveView").style.display="none";
- document.getElementById("todayView").style.display="block";
- if(goToday)renderDay(todayKey());
+ if(goToday)renderDay(todayKey()); else renderDay(currentKey);
  document.getElementById("protoTodayBtn").style.color="#292824";document.getElementById("protoArchiveBtn").style.color="#9b978f";window.scrollTo(0,0)
 }
 function showArchive(){
@@ -480,7 +567,10 @@ async function initialPull(user){
  remoteApplying=false;renderDay(currentKey);renderUpcoming()
 }
 function listen(user){
- dayUnsub?.();upUnsub?.();dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{remoteApplying=true;snap.docChanges().forEach(ch=>{if(ch.type==="removed"){if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(ch.doc.id,z)}});remoteApplying=false;renderDay(currentKey);sync("동기화됨",true)});
+ dayUnsub?.();upUnsub?.();dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{remoteApplying=true;snap.docChanges().forEach(ch=>{if(ch.type==="removed"){if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(ch.doc.id,z)}});remoteApplying=false;
+ // Never rebuild the live form while the user is typing. This prevents spaces/IME input from being swallowed.
+ if(!isActivelyTyping())renderDay(currentKey);
+ sync("동기화됨",true)});
  upUnsub=onSnapshot(doc(db,"users",user.uid,"daily_priority_meta","upcoming"),x=>{if(x.exists()){remoteApplying=true;setLocalUpcoming(x.data().items||[]);remoteApplying=false;renderUpcoming()}});
 }
 onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("동기화 중…");try{await initialPull(user);listen(user);sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
