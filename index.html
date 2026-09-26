@@ -148,8 +148,14 @@ html,body,button,input,textarea{font-family:"Maru Buri",serif!important}
 .auth-close{float:right;border:0;background:transparent;font-size:22px}.auth-msg{min-height:18px;color:#9a6a64;font-size:11px}
 @media(max-width:700px){#archiveView{padding:16px 22px 90px!important}}
 
-#archiveView{box-sizing:border-box!important;padding-top:18px!important;margin-top:0!important;vertical-align:top!important}
-@media(max-width:700px){#archiveView{padding-top:14px!important}}
+#archiveView{
+ box-sizing:border-box!important;position:fixed!important;z-index:9000!important;
+ top:0!important;left:0!important;right:0!important;bottom:70px!important;
+ width:100%!important;max-width:none!important;margin:0!important;
+ padding:22px max(22px,calc((100vw - 930px)/2)) 36px!important;
+ overflow-y:auto!important;background:var(--bg)!important;transform:none!important;
+}
+@media(max-width:700px){#archiveView{padding:18px 22px 32px!important}}
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -282,12 +288,37 @@ function normalizeDay(x={}){
  d.breakfast=x.breakfast||"";d.lunch=x.lunch||"";d.dinner=x.dinner||"";d.memo=x.memo||x.notes||"";
  return d
 }
+function mergeRecoveredDay(modernRaw,legacyRaw){
+ const modern=normalizeDay(modernRaw||{}), legacy=normalizeDay(legacyRaw||{});
+ // A previous conversion could have created an empty modern record while the old local record
+ // still contains the real text. Recover empty fields/rows from the old record, never the reverse.
+ if(!modern.focus && legacy.focus)modern.focus=legacy.focus;
+ ["house","kids","hobby","other"].forEach(a=>{
+   const n=Math.max(modern[a]?.length||0,legacy[a]?.length||0,5);
+   const out=[];
+   for(let i=0;i<n;i++){
+     const m=modern[a]?.[i],l=legacy[a]?.[i];
+     if(m && (m.text?.trim() || m.state!=="empty"))out.push(m);
+     else if(l && (l.text?.trim() || l.state!=="empty"))out.push(l);
+     else out.push(m||l||{id:uid(),text:"",state:"empty"});
+   }
+   modern[a]=out;
+ });
+ if(!modern.breakfast && legacy.breakfast)modern.breakfast=legacy.breakfast;
+ if(!modern.lunch && legacy.lunch)modern.lunch=legacy.lunch;
+ if(!modern.dinner && legacy.dinner)modern.dinner=legacy.dinner;
+ if(!modern.memo && legacy.memo)modern.memo=legacy.memo;
+ return modern;
+}
 function localDay(k){
  try{
-   const modern=localStorage.getItem(DAY_PREFIX+k);
-   if(modern) return normalizeDay(JSON.parse(modern));
-   const legacy=localStorage.getItem(LEGACY_PREFIX+k);
-   if(legacy) return normalizeDay(JSON.parse(legacy));
+   const modernText=localStorage.getItem(DAY_PREFIX+k);
+   const legacyText=localStorage.getItem(LEGACY_PREFIX+k);
+   const modernRaw=modernText?JSON.parse(modernText):null;
+   const legacyRaw=legacyText?JSON.parse(legacyText):null;
+   if(modernRaw&&legacyRaw)return mergeRecoveredDay(modernRaw,legacyRaw);
+   if(modernRaw)return normalizeDay(modernRaw);
+   if(legacyRaw)return normalizeDay(legacyRaw);
    return emptyDay();
  }catch{return emptyDay()}
 }
@@ -400,12 +431,12 @@ document.getElementById("loginBtn").onclick=async()=>{try{await signInWithEmailA
 document.getElementById("signupBtn").onclick=async()=>{try{await createUserWithEmailAndPassword(auth,authEmail.value.trim(),authPassword.value);msg.textContent="계정을 만들었어요."}catch{msg.textContent="계정을 만들지 못했어요."}};
 document.getElementById("logoutBtn").onclick=()=>signOut(auth);
 async function initialPull(user){
- const snap=await getDocs(collection(db,"users",user.uid,"daily_priority"));remoteApplying=true;snap.forEach(x=>{const z=x.data();delete z.updatedAt;delete z.deviceUpdatedAt;setLocalDay(x.id,normalizeDay(z))});
+ const snap=await getDocs(collection(db,"users",user.uid,"daily_priority"));remoteApplying=true;snap.forEach(x=>{const z=x.data();delete z.updatedAt;delete z.deviceUpdatedAt;setLocalDay(x.id,mergeRecoveredDay(z,(()=>{try{return JSON.parse(localStorage.getItem(LEGACY_PREFIX+x.id)||"{}")}catch{return {}}})()))});
  const ms=await getDocs(collection(db,"users",user.uid,"daily_priority_meta"));ms.forEach(x=>{if(x.id==="upcoming")setLocalUpcoming(x.data().items||[])});
  remoteApplying=false;renderDay(currentKey);renderUpcoming()
 }
 function listen(user){
- dayUnsub?.();upUnsub?.();dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{remoteApplying=true;snap.docChanges().forEach(ch=>{if(ch.type==="removed")localStorage.removeItem(DAY_PREFIX+ch.doc.id);else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;setLocalDay(ch.doc.id,normalizeDay(z))}});remoteApplying=false;renderDay(currentKey);sync("동기화됨",true)});
+ dayUnsub?.();upUnsub?.();dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{remoteApplying=true;snap.docChanges().forEach(ch=>{if(ch.type==="removed")localStorage.removeItem(DAY_PREFIX+ch.doc.id);else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;setLocalDay(ch.doc.id,mergeRecoveredDay(z,(()=>{try{return JSON.parse(localStorage.getItem(LEGACY_PREFIX+ch.doc.id)||"{}")}catch{return {}}})()))}});remoteApplying=false;renderDay(currentKey);sync("동기화됨",true)});
  upUnsub=onSnapshot(doc(db,"users",user.uid,"daily_priority_meta","upcoming"),x=>{if(x.exists()){remoteApplying=true;setLocalUpcoming(x.data().items||[]);remoteApplying=false;renderUpcoming()}});
 }
 onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("동기화 중…");try{await initialPull(user);listen(user);sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
