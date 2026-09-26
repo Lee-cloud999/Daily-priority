@@ -214,6 +214,29 @@ button,input,textarea,select{-webkit-appearance:none}
   color:#6f6c65!important;background:#fffefa!important;
 }
 .native-date-btn::-webkit-calendar-picker-indicator{opacity:.72}
+
+/* v23 — mobile schedule + reliable bottom navigation */
+#protoBottomNav{pointer-events:auto!important}
+#protoBottomNav button{pointer-events:auto!important;touch-action:manipulation!important;cursor:pointer!important}
+.up-row .status-check{display:block!important;visibility:visible!important;opacity:1!important}
+@media(max-width:650px){
+  .schedule-entry{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:6px!important;
+    align-items:stretch!important;
+    padding:8px 10px 6px!important;
+  }
+  .schedule-entry #newTask{width:100%!important;box-sizing:border-box!important}
+  .schedule-entry #datePick{
+    display:block!important;
+    width:100%!important;min-width:0!important;max-width:100%!important;
+    box-sizing:border-box!important;height:34px!important;
+  }
+  .up-row{min-width:0!important}
+  .up-row .status-check{width:20px!important;height:20px!important;min-width:20px!important;flex:0 0 20px!important}
+}
+
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -568,18 +591,32 @@ function buildArchive(){
 function setArchiveTab(rec){document.getElementById("tabRecords").classList.toggle("active",rec);document.getElementById("tabUnfinished").classList.toggle("active",!rec);document.getElementById("paneRecords").classList.toggle("active",rec);document.getElementById("paneUnfinished").classList.toggle("active",!rec)}
 document.getElementById("tabRecords").onclick=()=>setArchiveTab(true);document.getElementById("tabUnfinished").onclick=()=>setArchiveTab(false);
 function showToday(goToday=true){
+ try{sessionStorage.setItem("daily-priority-active-view","today")}catch(e){}
  document.querySelector(".wrap").style.display="block";
  document.getElementById("archiveView").style.display="none";
  if(goToday)renderDay(todayKey()); else renderDay(currentKey);
  document.getElementById("protoTodayBtn").style.color="#292824";document.getElementById("protoArchiveBtn").style.color="#9b978f";window.scrollTo(0,0)
 }
 function showArchive(){
+ try{sessionStorage.setItem("daily-priority-active-view","archive")}catch(e){}
  saveDaySnapshot(currentKey);buildArchive();
  document.querySelector(".wrap").style.display="none";
  document.getElementById("archiveView").style.display="block";
  document.getElementById("protoTodayBtn").style.color="#9b978f";document.getElementById("protoArchiveBtn").style.color="#292824";window.scrollTo(0,0)
 }
-document.getElementById("protoTodayBtn").onclick=()=>showToday(true);document.getElementById("protoArchiveBtn").onclick=showArchive;
+
+function setMainView(view){
+  try{sessionStorage.setItem("daily-priority-active-view",view)}catch(e){}
+  if(view==="archive")showArchive(); else showToday(true);
+}
+// Delegated capture handler survives rerenders and works for mouse, touch and PWA.
+document.addEventListener("click",e=>{
+  const b=e.target.closest&&e.target.closest("#protoTodayBtn,#protoArchiveBtn");
+  if(!b)return;
+  e.preventDefault();e.stopPropagation();
+  setMainView(b.id==="protoArchiveBtn"?"archive":"today");
+},true);
+
 
 // Auth + cloud. Each date is a separate Firestore document; upcoming is a separate global document.
 const pop=document.getElementById("authPop"),msg=document.getElementById("authMsg");document.getElementById("accountBtn").onclick=()=>pop.classList.add("show");document.getElementById("authClose").onclick=()=>pop.classList.remove("show");pop.onclick=e=>{if(e.target===pop)pop.classList.remove("show")};
@@ -648,10 +685,16 @@ async function recoverLegacyHistory(user){
  }
 }
 
-onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{await recoverLegacyHistory(user);await initialPull(user);listen(user);renderDay(currentKey);buildArchive();sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
+onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{await recoverLegacyHistory(user);await initialPull(user);listen(user);
+if(sessionStorage.getItem("daily-priority-active-view")==="archive"){buildArchive();document.querySelector(".wrap").style.display="none";document.getElementById("archiveView").style.display="block"}
+else renderDay(currentKey);
+buildArchive();sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
 document.getElementById("backupBtn").onclick=async()=>{if(!currentUser)return;const records={};allDays().forEach(x=>records[x.date]=x.data);const id=new Date().toISOString().replace(/[:.]/g,"-");await setDoc(doc(db,"users",currentUser.uid,"daily_priority_backups",id),{records,upcoming:localUpcoming(),deviceCreatedAt:Date.now(),createdAt:serverTimestamp()});msg.textContent="백업했어요."};
 
 renderDay(todayKey());renderUpcoming();
+try{
+ if(sessionStorage.getItem("daily-priority-active-view")==="archive")showArchive();
+}catch(e){}
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("./service-worker.js").catch(()=>{}));
 </script>
 
