@@ -574,12 +574,12 @@ function applyState(btn,row,state){btn.dataset.state=state; row.classList.toggle
 
 
 function rawLegacyForDate(k){
- try{
-   const recovered=localStorage.getItem(RECOVERY_PREFIX+k);
-   if(recovered)return JSON.parse(recovered);
- }catch{}
- const old=legacyRawLocal(k); if(old&&hasLegacyPayload(old))return old;
- const fallback=modernRawLocal(k); return fallback||old||{};
+ const candidates=[];
+ try{const t=localStorage.getItem(RECOVERY_PREFIX+k);if(t)candidates.push(JSON.parse(t))}catch{}
+ const old=legacyRawLocal(k);if(old)candidates.push(old);
+ const modern=modernRawLocal(k);if(modern)candidates.push(modern);
+ if(!candidates.length)return {};
+ return candidates.sort((a,b)=>anyRecordScore(b)-anyRecordScore(a))[0];
 }
 function legacyRawState(v){return v===true||v==="done"?"done":v==="unfinished"||v==="undone"?"unfinished":"empty"}
 function legacySnapshotRow(text,state,areaClass=""){
@@ -723,8 +723,8 @@ function archiveDayFromRaw(date,raw){
  try{
   if(isLegacyDate(date)){
    const localRaw=rawLegacyForDate(date);
-   const chosen=(localRaw&&legacyContentScore(localRaw)>=legacyContentScore(raw||{}))?localRaw:(raw||localRaw||{});
-   if(!chosen||legacyContentScore(chosen)<=0)return null;
+   const chosen=(localRaw&&anyRecordScore(localRaw)>=anyRecordScore(raw||{}))?localRaw:(raw||localRaw||{});
+   if(!chosen||anyRecordScore(chosen)<=0)return null;
    return {date,data:normalizeDay(chosen),legacy:true};
   }
   const local=localDay(date),remote=raw?normalizeDay(raw):null;
@@ -747,7 +747,7 @@ function allDays(){
   else if(k.startsWith(RECOVERY_PREFIX))dates.add(k.slice(RECOVERY_PREFIX.length));
  });
  archiveCloudDays.forEach((_,date)=>dates.add(date));
- ["2026-09-23","2026-09-24","2026-09-25"].forEach(date=>{try{if(legacyContentScore(rawLegacyForDate(date))>0)dates.add(date)}catch(e){}});
+ ["2026-09-23","2026-09-24","2026-09-25"].forEach(date=>{try{if(anyRecordScore(rawLegacyForDate(date))>0)dates.add(date)}catch(e){}});
  return [...dates].map(date=>archiveDayFromRaw(date,archiveCloudDays.get(date))).filter(Boolean).sort((a,b)=>b.date.localeCompare(a.date));
 }
 function buildArchive(){
@@ -871,12 +871,18 @@ function legacyContentScore(raw={}){
  });
  return n;
 }
+function anyRecordScore(raw={}){
+ try{
+  if(isLegacyDay(raw))return legacyContentScore(raw);
+  return contentScore(normalizeDay(raw));
+ }catch(e){return 0}
+}
 function saveRecoveredLegacy(date,raw,source){
- if(!raw||!hasLegacyPayload(raw)||legacyContentScore(raw)===0)return false;
+ if(!raw||anyRecordScore(raw)<=0)return false;
  const key=RECOVERY_PREFIX+date;
  let prev=null;try{prev=JSON.parse(localStorage.getItem(key)||"null")}catch{}
- if(!prev||legacyContentScore(raw)>legacyContentScore(prev)){
-   localStorage.setItem(key,JSON.stringify({...stripMeta(raw),_recoverySource:source}));
+ if(!prev||anyRecordScore(raw)>anyRecordScore(prev)){
+  localStorage.setItem(key,JSON.stringify({...stripMeta(raw),_recoverySource:source}));
  }
  return true;
 }
@@ -895,24 +901,17 @@ async function recoverLegacyHistory(user){
  // 3. Search backups newest -> older and recover the richest original record per date.
  // Backups are READ ONLY here: nothing is written back to Firestore.
  try{
-   const qs=query(collection(db,"users",user.uid,"daily_priority_backups"),orderBy("deviceCreatedAt","desc"),limit(50));
-   const bs=await getDocs(qs);
+   const bs=await getDocs(collection(db,"users",user.uid,"daily_priority_backups"));
    bs.forEach(b=>{
-     const records=b.data().records||{};
-     wanted.forEach(date=>{if(records[date])saveRecoveredLegacy(date,records[date],"backup:"+b.id)});
+    const records=b.data().records||{};
+    wanted.forEach(date=>{if(records[date])saveRecoveredLegacy(date,records[date],"backup:"+b.id)});
    });
- }catch(e){
-   // Fallback for older backups that may not have deviceCreatedAt/index ordering.
-   try{
-     const bs=await getDocs(collection(db,"users",user.uid,"daily_priority_backups"));
-     bs.forEach(b=>{const records=b.data().records||{};wanted.forEach(date=>{if(records[date])saveRecoveredLegacy(date,records[date],"backup:"+b.id)})});
-   }catch{}
- }
+ }catch(e){console.warn("legacy backup recovery",e)}
  // legacy archive bridge: preserve original payload, only ensure Archive can discover it.
  ["2026-09-23","2026-09-24","2026-09-25"].forEach(date=>{
    try{
      const raw=rawLegacyForDate(date);
-     if(raw && legacyContentScore(raw)>0 && !localStorage.getItem(RECOVERY_PREFIX+date)){
+     if(raw && anyRecordScore(raw)>0 && !localStorage.getItem(RECOVERY_PREFIX+date)){
        localStorage.setItem(RECOVERY_PREFIX+date,JSON.stringify(raw));
      }
    }catch(e){}
