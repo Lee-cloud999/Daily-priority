@@ -547,8 +547,15 @@ function allDays(){
  Object.keys(localStorage).forEach(k=>{
    if(k.startsWith(DAY_PREFIX))dates.add(k.slice(DAY_PREFIX.length));
    else if(k.startsWith(LEGACY_PREFIX))dates.add(k.slice(LEGACY_PREFIX.length));
+   else if(k.startsWith(RECOVERY_PREFIX))dates.add(k.slice(RECOVERY_PREFIX.length));
  });
- return [...dates].map(date=>({date,data:localDay(date)})).filter(x=>dayHasContent(x.data)).sort((a,b)=>b.date.localeCompare(a.date))
+ return [...dates].map(date=>{
+   if(isLegacyDate(date)){
+     const raw=rawLegacyForDate(date);
+     return {date,data:normalizeLegacy(raw)};
+   }
+   return {date,data:localDay(date)};
+ }).filter(x=>dayHasContent(x.data)).sort((a,b)=>b.date.localeCompare(a.date))
 }
 function dayHasContent(d){return !!(d.focus||d.breakfast||d.lunch||d.dinner||d.memo||areas.some(a=>(d[a]||[]).some(x=>x.text?.trim()||x.state!=="empty")))}
 function buildArchive(){
