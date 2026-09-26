@@ -663,7 +663,7 @@ function allDays(){
       if(isLegacyDate(date)){
         const raw=rawLegacyForDate(date);
         if(!raw || legacyContentScore(raw)<=0)return null;
-        return {date,data:normalizeLegacy(raw),legacy:true};
+        return {date,data:normalizeDay(raw),legacy:true};
       }
       return {date,data:localDay(date),legacy:false};
     }catch(e){
@@ -674,7 +674,8 @@ function allDays(){
     .sort((a,b)=>b.date.localeCompare(a.date));
 }
 function buildArchive(){
- const dates=document.getElementById("archiveDates"),u=document.getElementById("unfinishedList"),days=allDays();
+ const dates=document.getElementById("archiveDates"),u=document.getElementById("unfinishedList");
+ let days=[];try{days=allDays()}catch(e){console.error("archive allDays",e);days=[]}
  dates.innerHTML=days.length?days.map(({date,data})=>`<div class="archive-record"><div class="archive-record-main"><div class="archive-focus">${esc(data.focus||date)}</div>${data.focus?`<div class="archive-record-date">${date}</div>`:""}</div><button class="archive-open" data-open="${date}">열기</button></div>`).join(""):`<div class="archive-empty">아직 저장된 기록이 없어요.</div>`;
  dates.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{renderDay(b.dataset.open);showToday(false)});
  const unfinished=[];days.forEach(({date,data})=>areas.forEach(a=>data[a].forEach(x=>{if(x.state==="undone"&&x.text.trim())unfinished.push({date,area:{house:"집안일",kids:"육아",hobby:"취미",other:"그 외"}[a],text:x.text})})));
