@@ -279,6 +279,12 @@ button,input,textarea,select{-webkit-appearance:none}
 .sync-diag-head button{border:0;background:transparent;color:#777;font:inherit}
 .sync-mini{cursor:pointer}
 
+
+@media(max-width:650px){
+ .archive-tabs{grid-template-columns:repeat(3,1fr)!important}
+ .archive-tab{font-size:12px!important;padding-left:5px!important;padding-right:5px!important}
+}
+
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -341,12 +347,16 @@ button,input,textarea,select{-webkit-appearance:none}
   <div class="archive-tabs">
     <button class="archive-tab active" id="tabRecords" type="button">기록</button>
     <button class="archive-tab" id="tabUnfinished" type="button">미완료</button>
+    <button class="archive-tab" id="tabCompletedSchedule" type="button">완료된 일정</button>
   </div>
   <div class="archive-pane active" id="paneRecords">
     <div class="archive-card"><div id="archiveDates"></div></div>
   </div>
   <div class="archive-pane" id="paneUnfinished">
     <div class="archive-card unfinished-card"><div id="unfinishedList"></div></div>
+  </div>
+  <div class="archive-pane" id="paneCompletedSchedule">
+    <div class="archive-card unfinished-card"><div id="completedScheduleList"></div></div>
   </div>
 </section>
 
@@ -364,7 +374,7 @@ button,input,textarea,select{-webkit-appearance:none}
   </div>
   <div id="signedIn" style="display:none">
    <p><b id="userEmail"></b></p>
-   <div class="auth-actions"><button id="backupBtn">지금 백업</button><button id="logoutBtn">로그아웃</button></div>
+   <div id="lastBackupText" style="font-size:12px;color:#8b867e;margin:4px 0 8px">마지막 백업 없음</div><div class="auth-actions"><button id="backupBtn">지금 백업</button><button id="logoutBtn">로그아웃</button></div>
   </div>
   <div class="auth-msg" id="authMsg"></div>
  </div>
@@ -431,7 +441,7 @@ button,input,textarea,select{-webkit-appearance:none}
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
 import { getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,setPersistence,browserLocalPersistence } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-auth.js";
-import { getFirestore,collection,doc,getDocs,setDoc,deleteDoc,onSnapshot,serverTimestamp,query,orderBy,limit } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+import { getFirestore,collection,doc,getDocs,getDoc,setDoc,deleteDoc,onSnapshot,serverTimestamp,query,orderBy,limit } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
 
 const firebaseConfig={apiKey:"AIzaSyCOy8x5kPeJUUqRUjEHRqckT2ReULEoUac",authDomain:"maeum-jogak2.firebaseapp.com",projectId:"maeum-jogak2",storageBucket:"maeum-jogak2.firebasestorage.app",messagingSenderId:"942972843404",appId:"1:942972843404:web:f4102731556db95309d2a9",measurementId:"G-76KT3H2BGQ"};
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app); setPersistence(auth,browserLocalPersistence).catch(()=>{});
@@ -619,20 +629,35 @@ function saveDaySnapshot(key){
  // 9/23–9/25 are immutable legacy snapshots. Opening/navigating them must never rewrite them.
  if(isLegacyDate(key))return;
  // KEY IS CAPTURED AT INPUT TIME. Never read currentKey later in the debounce.
- const data=readRenderedDay(key); setLocalDay(key,data); buildArchive(); queueCloudDay(key,structuredClone(data));
+ const data=readRenderedDay(key); data.clientUpdatedAt=Date.now(); setLocalDay(key,data); buildArchive(); queueCloudDay(key,structuredClone(data));
+}
+function contentScore(d){
+ if(!d)return 0;
+ let n=String(d.focus||"").trim().length+String(d.breakfast||"").trim().length+String(d.lunch||"").trim().length+String(d.dinner||"").trim().length+String(d.memo||"").trim().length;
+ areas.forEach(a=>(d[a]||[]).forEach(x=>{n+=String(x?.text||"").trim().length;if(x?.state&&x.state!=="empty")n+=1}));
+ return n;
+}
+function safeStoreCloudDay(key,z){
+ if(isLegacyDate(key)){storeCloudDayWithoutDestroyingLegacy(key,z);return}
+ const local=localDay(key),rs=Number(z?.clientUpdatedAt||0),ls=Number(local?.clientUpdatedAt||0);
+ if(ls>rs)return;
+ if(!rs&&contentScore(local)>contentScore(z))return;
+ storeCloudDayWithoutDestroyingLegacy(key,z);
 }
 function queueCloudDay(key,data){
- clearTimeout(timers.get(key));
- timers.set(key,setTimeout(async()=>{
-   if(remoteApplying)return;
-   if(!currentUser){lastSyncError="auth/no-user · Firebase 로그인 상태가 아닙니다.";sync("로그인 필요 · 기기에 저장됨");return}
-   sync("동기화 중…");
-   try{
-     await setDoc(doc(db,"users",currentUser.uid,"daily_priority",key),{...data,schemaVersion:CURRENT_SCHEMA,deviceUpdatedAt:Date.now(),updatedAt:serverTimestamp()});
-     lastSyncError="";sync("동기화됨",true);buildArchive();
-   }catch(e){
-     lastSyncError=errorText(e);sync("동기화 실패 · 눌러서 원인 확인");
-   }
+ clearTimeout(timers.get(key));timers.set(key,setTimeout(async()=>{
+  if(remoteApplying)return;
+  if(!currentUser){lastSyncError="auth/no-user · Firebase 로그인 상태가 아닙니다.";sync("로그인 필요 · 기기에 저장됨");return}
+  sync("동기화 중…");
+  try{
+   const ref=doc(db,"users",currentUser.uid,"daily_priority",key);
+   const payload={...data,clientUpdatedAt:Number(data.clientUpdatedAt||Date.now()),schemaVersion:CURRENT_SCHEMA,deviceUpdatedAt:Date.now(),updatedAt:serverTimestamp()};
+   await setDoc(ref,payload);
+   const verify=await getDoc(ref);
+   if(!verify.exists())throw new Error("Firestore 저장 확인 실패: 서버 문서가 없습니다.");
+   if(Number(verify.data().clientUpdatedAt||0)!==Number(payload.clientUpdatedAt))throw new Error("Firestore 저장 확인 실패: 서버 버전이 일치하지 않습니다.");
+   lastSyncError="";sync("서버 저장 확인됨",true);buildArchive();
+  }catch(e){lastSyncError=errorText(e);sync("동기화 실패 · 눌러서 원인 확인")}
  },300));
 }
 function fit(el){el.style.height="auto";el.style.height=el.scrollHeight+"px"}
@@ -656,19 +681,19 @@ document.getElementById("nextProto").onclick=()=>{const old=currentKey;saveDaySn
 document.getElementById("legacyPrev").onclick=()=>renderDay(shift(currentKey,-1));
 document.getElementById("legacyNext").onclick=()=>renderDay(shift(currentKey,1));
 
-function dday(date){const n=Math.round((new Date(date+"T00:00:00")-new Date(currentKey+"T00:00:00"))/86400000);return n===0?"D-DAY":n>0?`D-${n}`:`D+${Math.abs(n)}`}
+function dday(date){const n=Math.round((new Date(date+"T00:00:00")-new Date(currentKey+"T00:00:00"))/86400000);return n===0?"D-DAY":n>0?`D-${n}`:""}
 function upRow(x){
  const w=document.createElement("div");w.className="swipe-wrap";w.dataset.id=x.id;
  const [,m,d]=x.date.split("-");w.innerHTML=`<button class="swipe-delete" type="button">제거</button><div class="swipe-content up-row"><button class="status-check" type="button"></button><span class="up-text">${esc(x.text)}</span><span class="when"><span class="dday">${dday(x.date)}</span> · ${+m}/${+d}</span></div>`;
  const b=w.querySelector(".status-check");b.dataset.state=x.state||"empty";applyState(b,w.querySelector(".swipe-content"),x.state||"empty");
  b.onclick=e=>{e.preventDefault();e.stopPropagation();x.state=stateNext(x.state||"empty");saveUpcomingMutation(x)};
  w.querySelector(".when").onclick=e=>{e.stopPropagation();editingUp=x.id;document.getElementById("editUpcomingDate").value=x.date;document.getElementById("dateEditPop").style.display="flex"};
- installSwipe(w,()=>{let a=localUpcoming().filter(z=>z.id!==x.id);setLocalUpcoming(a);renderUpcoming();cloudUpcoming(a)});
+ installSwipe(w,()=>{let a=localUpcoming().filter(z=>z.id!==x.id);setLocalUpcoming(a);renderUpcoming();buildArchive();cloudUpcoming(a)});
  return w
 }
 function renderUpcoming(){const box=document.getElementById("upcoming");box.innerHTML="";localUpcoming().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>box.appendChild(upRow(x)))}
 function refreshUpcoming(){renderUpcoming()}
-function saveUpcomingMutation(x){const a=localUpcoming(),i=a.findIndex(z=>z.id===x.id);if(i>=0)a[i]={...x};setLocalUpcoming(a);renderUpcoming();cloudUpcoming(a)}
+function saveUpcomingMutation(x){const a=localUpcoming(),i=a.findIndex(z=>z.id===x.id);if(i>=0)a[i]={...x};setLocalUpcoming(a);renderUpcoming();buildArchive();cloudUpcoming(a)}
 let upTimer=null;function cloudUpcoming(a){clearTimeout(upTimer);upTimer=setTimeout(async()=>{
  if(remoteApplying)return;
  if(!currentUser){lastSyncError="auth/no-user · Firebase 로그인 상태가 아닙니다.";sync("로그인 필요 · 기기에 저장됨");return}
@@ -741,9 +766,19 @@ function buildArchive(){
  dates.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{renderDay(b.dataset.open);showToday(false)});
  const unfinished=[];days.forEach(({date,data})=>areas.forEach(a=>data[a].forEach(x=>{if(x.state==="undone"&&x.text.trim())unfinished.push({date,area:{house:"집안일",kids:"육아",hobby:"취미",other:"그 외"}[a],text:x.text})})));
  u.innerHTML=unfinished.length?unfinished.map(x=>`<div class="unfinished-row"><span>${x.area}</span><b>${esc(x.text)}</b><span class="unfinished-date">${x.date}</span></div>`).join(""):`<div class="archive-empty">미완료된 할 일이 없어요.</div>`;
+ const cs=document.getElementById("completedScheduleList");
+ const completed=localUpcoming().filter(x=>x.state==="done").sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+ if(cs)cs.innerHTML=completed.length?completed.map(x=>`<div class="unfinished-row"><span>완료</span><b>${esc(x.text)}</b><span class="unfinished-date">${esc(x.date||"")}</span></div>`).join(""):`<div class="archive-empty">완료된 일정이 없어요.</div>`;
 }
-function setArchiveTab(rec){document.getElementById("tabRecords").classList.toggle("active",rec);document.getElementById("tabUnfinished").classList.toggle("active",!rec);document.getElementById("paneRecords").classList.toggle("active",rec);document.getElementById("paneUnfinished").classList.toggle("active",!rec)}
-document.getElementById("tabRecords").onclick=()=>setArchiveTab(true);document.getElementById("tabUnfinished").onclick=()=>setArchiveTab(false);
+function setArchiveTab(which){
+ ["Records","Unfinished","CompletedSchedule"].forEach(n=>{
+  document.getElementById("tab"+n)?.classList.toggle("active",which===n);
+  document.getElementById("pane"+n)?.classList.toggle("active",which===n);
+ });
+}
+document.getElementById("tabRecords").onclick=()=>setArchiveTab("Records");
+document.getElementById("tabUnfinished").onclick=()=>setArchiveTab("Unfinished");
+document.getElementById("tabCompletedSchedule").onclick=()=>setArchiveTab("CompletedSchedule");
 function rememberView(view){
  try{sessionStorage.setItem("daily-priority-active-view",view)}catch(e){}
 }
@@ -804,7 +839,7 @@ async function initialPull(user){
  try{
    const snap=await getDocs(collection(db,"users",user.uid,"daily_priority"));
    remoteApplying=true;
-   snap.forEach(x=>{const z=x.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(x.id,z)});
+   snap.forEach(x=>{const z=x.data();delete z.updatedAt;delete z.deviceUpdatedAt;safeStoreCloudDay(x.id,z)});
    const ms=await getDocs(collection(db,"users",user.uid,"daily_priority_meta"));
    ms.forEach(x=>{if(x.id==="upcoming")setLocalUpcoming(x.data().items||[])});
    remoteApplying=false;renderDay(currentKey);renderUpcoming();buildArchive();
@@ -815,7 +850,7 @@ function listen(user){
  dayUnsub?.();upUnsub?.();
  dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{
    remoteApplying=true;
-   snap.docChanges().forEach(ch=>{if(ch.type==="removed"){if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(ch.doc.id,z)}});
+   snap.docChanges().forEach(ch=>{if(ch.type==="removed"){if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;safeStoreCloudDay(ch.doc.id,z)}});
    remoteApplying=false;
    if(!isActivelyTyping())renderDay(currentKey);
    buildArchive();lastSyncError="";sync("동기화됨",true);
@@ -914,7 +949,25 @@ onAuthStateChanged(auth,async user=>{
    buildArchive();sync("로그인 필요 · 기기에 저장됨");
  }
 });
-document.getElementById("backupBtn").onclick=async()=>{if(!currentUser)return;const records={};allDays().forEach(x=>records[x.date]=x.data);const id=new Date().toISOString().replace(/[:.]/g,"-");await setDoc(doc(db,"users",currentUser.uid,"daily_priority_backups",id),{records,upcoming:localUpcoming(),deviceCreatedAt:Date.now(),createdAt:serverTimestamp()});msg.textContent="백업했어요."};
+function showLastBackup(ms){
+ const el=document.getElementById("lastBackupText");if(!el)return;
+ if(!ms){el.textContent="마지막 백업 없음";return}
+ const d=new Date(ms);el.textContent=`마지막 백업 ${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+async function loadLastBackup(){
+ if(!currentUser)return showLastBackup(0);
+ try{const x=await getDoc(doc(db,"users",currentUser.uid,"daily_priority_meta","backup_status"));showLastBackup(x.exists()?x.data().deviceCreatedAt:0)}catch(e){}
+}
+document.getElementById("backupBtn").onclick=async()=>{
+ if(!currentUser)return;
+ try{
+  const records={};allDays().forEach(x=>records[x.date]=x.data);
+  const now=Date.now(),id=new Date(now).toISOString().replace(/[:.]/g,"-");
+  await setDoc(doc(db,"users",currentUser.uid,"daily_priority_backups",id),{records,upcoming:localUpcoming(),deviceCreatedAt:now,createdAt:serverTimestamp()});
+  await setDoc(doc(db,"users",currentUser.uid,"daily_priority_meta","backup_status"),{deviceCreatedAt:now,updatedAt:serverTimestamp()});
+  showLastBackup(now);msg.textContent="백업했어요.";
+ }catch(e){lastSyncError=errorText(e);msg.textContent="백업 실패 · 동기화 상태에서 원인을 확인해주세요."}
+};
 
 renderDay(todayKey());renderUpcoming();
 try{
