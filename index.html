@@ -285,6 +285,29 @@ button,input,textarea,select{-webkit-appearance:none}
  .archive-tab{font-size:12px!important;padding-left:5px!important;padding-right:5px!important}
 }
 
+
+/* v38: sync/backup modal must stay above the fixed bottom navigation */
+.auth-pop{
+  z-index:10000 !important;
+  padding-top:max(16px, env(safe-area-inset-top)) !important;
+  padding-bottom:max(92px, calc(76px + env(safe-area-inset-bottom))) !important;
+  overflow-y:auto !important;
+  overscroll-behavior:contain;
+}
+.auth-card{
+  position:relative;
+  z-index:10001 !important;
+  max-height:calc(100dvh - 120px) !important;
+  overflow-y:auto !important;
+  -webkit-overflow-scrolling:touch;
+  margin:auto !important;
+}
+#protoBottomNav{z-index:5000 !important;}
+@media (min-width:768px){
+  .auth-pop{padding:24px !important;}
+  .auth-card{max-height:calc(100dvh - 48px) !important;}
+}
+
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -988,6 +1011,24 @@ document.getElementById("backupBtn").onclick=async()=>{
   showLastBackup(now);msg.textContent="백업했어요.";
  }catch(e){lastSyncError=errorText(e);msg.textContent="백업 실패 · 동기화 상태에서 원인을 확인해주세요."}
 };
+
+
+function hardenTaskInputsAgainstPasswordManager(root=document){
+ root.querySelectorAll('input[type="text"]').forEach(el=>{
+  if(el.closest("#authPop")) return;
+  el.setAttribute("autocomplete","off");
+  el.setAttribute("autocapitalize","sentences");
+  el.setAttribute("data-lpignore","true");
+  el.setAttribute("data-1p-ignore","true");
+  el.setAttribute("data-form-type","other");
+  if(!el.name || /password|pass|login|user|email/i.test(el.name)){
+    el.name="task_"+Math.random().toString(36).slice(2);
+  }
+ });
+}
+const taskInputGuard=new MutationObserver(()=>hardenTaskInputsAgainstPasswordManager());
+taskInputGuard.observe(document.body,{childList:true,subtree:true});
+hardenTaskInputsAgainstPasswordManager();
 
 renderDay(todayKey());renderUpcoming();
 try{
