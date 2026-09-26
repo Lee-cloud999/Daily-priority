@@ -206,6 +206,14 @@ button,input,textarea,select{-webkit-appearance:none}
 
 
 .legacy-recovery-note{font-size:10px;color:#8f8a80;text-align:right;margin:-2px 0 8px}
+
+.native-date-btn{
+  -webkit-appearance:auto!important;appearance:auto!important;
+  width:92px!important;min-width:92px!important;height:30px!important;
+  padding:2px 4px!important;font-size:11px!important;
+  color:#6f6c65!important;background:#fffefa!important;
+}
+.native-date-btn::-webkit-calendar-picker-indicator{opacity:.72}
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -223,7 +231,7 @@ button,input,textarea,select{-webkit-appearance:none}
 <div class="quad q2"><div class="qhead"><div class="head-copy"><b>육아</b><small>아이들과 관련된 일</small></div><button class="section-add head-add" data-target="kids">＋</button></div><div class="items" id="kids"></div></div>
 <div class="quad q3"><div class="qhead"><div class="head-copy"><b>취미</b><small>나를 위한 시간</small></div><button class="section-add head-add" data-target="hobby">＋</button></div><div class="items" id="hobby"></div></div>
 <div class="quad q4"><div class="qhead"><div class="head-copy"><b>다가오는 일정</b><small>미리 보는 일정</small></div><button class="section-add head-add upcoming-head-add" id="upHeadAdd">＋</button></div>
-<div class="schedule-entry"><input id="newTask" class="text" placeholder="일정 입력"><button id="dateBtn" class="date-btn">9/28</button><input id="datePick" type="date" value="2026-09-28" style="position:absolute;opacity:0;pointer-events:none"><button id="addBtn" class="plus">+</button></div>
+<div class="schedule-entry"><input id="newTask" class="text" placeholder="일정 입력"><input id="datePick" class="date-btn native-date-btn" type="date" aria-label="일정 날짜 선택"></div>
 <div class="upcoming" id="upcoming">
 <div class="swipe-wrap"><button class="swipe-delete">제거</button><div class="swipe-content up-row"><button class="status-check" type="button" aria-label="상태 변경"></button><span class="up-text">시어머님 병원 전화</span><span class="when"><span class="dday">D-2</span> · 9/28</span></div></div>
 <div class="swipe-wrap"><button class="swipe-delete">제거</button><div class="swipe-content up-row"><button class="status-check" type="button" aria-label="상태 변경"></button><span class="up-text">첫째 치과 3:10</span><span class="when"><span class="dday">D-2</span> · 9/28</span></div></div>
@@ -522,11 +530,15 @@ function renderUpcoming(){const box=document.getElementById("upcoming");box.inne
 function refreshUpcoming(){renderUpcoming()}
 function saveUpcomingMutation(x){const a=localUpcoming(),i=a.findIndex(z=>z.id===x.id);if(i>=0)a[i]={...x};setLocalUpcoming(a);renderUpcoming();cloudUpcoming(a)}
 let upTimer=null;function cloudUpcoming(a){clearTimeout(upTimer);upTimer=setTimeout(async()=>{if(!currentUser||remoteApplying)return;try{await setDoc(doc(db,"users",currentUser.uid,"daily_priority_meta","upcoming"),{items:a,updatedAt:serverTimestamp()});sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}},250)}
-const datePick=document.getElementById("datePick"),dateBtn=document.getElementById("dateBtn");
-dateBtn.onclick=()=>{try{datePick.showPicker()}catch{datePick.click()}};datePick.onchange=()=>{const [,m,d]=datePick.value.split("-");dateBtn.textContent=`${+m}/${+d}`};
-datePick.value=todayKey();dateBtn.textContent=`${new Date().getMonth()+1}/${new Date().getDate()}`;
-document.getElementById("addBtn").onclick=()=>{const inp=document.getElementById("newTask"),text=inp.value.trim();if(!text)return;const a=localUpcoming();a.push({id:uid(),text,date:datePick.value||todayKey(),state:"empty"});setLocalUpcoming(a);inp.value="";renderUpcoming();cloudUpcoming(a)};
-document.getElementById("upHeadAdd").onclick=()=>document.getElementById("newTask").focus();
+const datePick=document.getElementById("datePick");
+datePick.value=todayKey();
+function addUpcomingFromEntry(){
+ const inp=document.getElementById("newTask"),text=inp.value.trim();if(!text)return;
+ const a=localUpcoming();a.push({id:uid(),text,date:datePick.value||todayKey(),state:"empty"});
+ setLocalUpcoming(a);inp.value="";renderUpcoming();cloudUpcoming(a);
+}
+document.getElementById("newTask").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addUpcomingFromEntry()}});
+document.getElementById("upHeadAdd").onclick=()=>{const inp=document.getElementById("newTask");if(inp.value.trim())addUpcomingFromEntry();else inp.focus()};
 let editingUp=null;document.getElementById("cancelDateEdit").onclick=()=>{editingUp=null;document.getElementById("dateEditPop").style.display="none"};
 document.getElementById("saveDateEdit").onclick=()=>{const v=document.getElementById("editUpcomingDate").value,a=localUpcoming(),i=a.findIndex(x=>x.id===editingUp);if(v&&i>=0){a[i].date=v;setLocalUpcoming(a);cloudUpcoming(a);renderUpcoming()}editingUp=null;document.getElementById("dateEditPop").style.display="none"};
 
