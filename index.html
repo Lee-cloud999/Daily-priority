@@ -256,6 +256,23 @@ button,input,textarea,select{-webkit-appearance:none}
  }
 }
 
+
+/* v25 independent bottom navigation */
+#protoBottomNav{
+  z-index:2147483646!important;
+  height:calc(64px + env(safe-area-inset-bottom))!important;
+  padding-bottom:env(safe-area-inset-bottom)!important;
+  box-sizing:border-box!important;
+  isolation:isolate!important;
+}
+#protoBottomNav button{
+  z-index:2147483647!important;
+  -webkit-appearance:none!important;
+  appearance:none!important;
+  user-select:none!important;
+  -webkit-user-select:none!important;
+}
+
 </style>
 <meta name="theme-color" content="#f6f4ef">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -361,6 +378,46 @@ button,input,textarea,select{-webkit-appearance:none}
 </div>
 
 
+
+<script>
+(function(){
+  function remember(v){try{sessionStorage.setItem("daily-priority-active-view",v)}catch(e){}}
+  function paint(v){
+    var t=document.getElementById("protoTodayBtn"),a=document.getElementById("protoArchiveBtn");
+    if(t)t.style.color=v==="today"?"#292824":"#9b978f";
+    if(a)a.style.color=v==="archive"?"#292824":"#9b978f";
+  }
+  function openView(v){
+    var wrap=document.querySelector(".wrap"),archive=document.getElementById("archiveView");
+    if(v==="archive"){
+      if(wrap)wrap.style.display="none";
+      if(archive)archive.style.display="block";
+    }else{
+      if(archive)archive.style.display="none";
+      if(wrap)wrap.style.display="block";
+    }
+    remember(v);paint(v);window.scrollTo(0,0);
+    document.dispatchEvent(new CustomEvent("dp:viewchange",{detail:{view:v}}));
+  }
+  function bind(id,v){
+    var b=document.getElementById(id); if(!b)return;
+    var fired=0;
+    function go(e){
+      if(e){e.preventDefault();e.stopPropagation()}
+      var now=Date.now(); if(now-fired<250)return; fired=now;
+      openView(v);
+    }
+    b.addEventListener("click",go,false);
+    b.addEventListener("touchend",go,{passive:false});
+    b.addEventListener("pointerup",go,false);
+  }
+  bind("protoTodayBtn","today");
+  bind("protoArchiveBtn","archive");
+  var saved="today";try{saved=sessionStorage.getItem("daily-priority-active-view")||"today"}catch(e){}
+  if(saved==="archive")openView("archive"); else paint("today");
+  window.__dpOpenView=openView;
+})();
+</script>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
@@ -637,8 +694,19 @@ function showArchive(){
 }
 const todayNav=document.getElementById("protoTodayBtn");
 const archiveNav=document.getElementById("protoArchiveBtn");
-if(todayNav)todayNav.onclick=function(e){e.preventDefault();showToday(true)};
-if(archiveNav)archiveNav.onclick=function(e){e.preventDefault();showArchive()};
+// Navigation input is bound by the independent non-module layer above.
+if(todayNav)todayNav.onclick=null;
+if(archiveNav)archiveNav.onclick=null;
+
+document.addEventListener("dp:viewchange",e=>{
+ const v=e.detail&&e.detail.view;
+ if(v==="archive"){
+   try{saveDaySnapshot(currentKey)}catch(err){}
+   try{buildArchive()}catch(err){console.warn("archive build",err)}
+ }else if(v==="today"){
+   try{renderDay(todayKey())}catch(err){console.warn("today render",err)}
+ }
+});
 
 
 // Auth + cloud. Each date is a separate Firestore document; upcoming is a separate global document.
