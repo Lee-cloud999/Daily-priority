@@ -594,7 +594,11 @@ async function initialPull(user){
 function listen(user){
  dayUnsub?.();upUnsub?.();dayUnsub=onSnapshot(collection(db,"users",user.uid,"daily_priority"),snap=>{remoteApplying=true;snap.docChanges().forEach(ch=>{if(ch.type==="removed"){if(!isLegacyDate(ch.doc.id))localStorage.removeItem(DAY_PREFIX+ch.doc.id)}else{const z=ch.doc.data();delete z.updatedAt;delete z.deviceUpdatedAt;storeCloudDayWithoutDestroyingLegacy(ch.doc.id,z)}});remoteApplying=false;
  // Never rebuild the live form while the user is typing. This prevents spaces/IME input from being swallowed.
- if(!isActivelyTyping())renderDay(currentKey);
+ if(document.getElementById("archiveView").style.display==="block" || document.querySelector(".wrap").style.display==="none"){
+   buildArchive();
+ }else if(!isActivelyTyping()){
+   renderDay(currentKey);
+ }
  sync("동기화됨",true)});
  upUnsub=onSnapshot(doc(db,"users",user.uid,"daily_priority_meta","upcoming"),x=>{if(x.exists()){remoteApplying=true;setLocalUpcoming(x.data().items||[]);remoteApplying=false;renderUpcoming()}});
 }
@@ -645,10 +649,25 @@ async function recoverLegacyHistory(user){
      const bs=await getDocs(collection(db,"users",user.uid,"daily_priority_backups"));
      bs.forEach(b=>{const records=b.data().records||{};wanted.forEach(date=>{if(records[date])saveRecoveredLegacy(date,records[date],"backup:"+b.id)})});
    }catch{}
- }
+ } 
+ // Installed PWA may already be showing the archive while recovery completes.
+ if(document.getElementById("archiveView").style.display==="block" || document.querySelector(".wrap").style.display==="none")buildArchive();
+
 }
 
-onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{await recoverLegacyHistory(user);await initialPull(user);listen(user);renderDay(currentKey);sync("동기화됨",true)}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
+onAuthStateChanged(auth,async user=>{currentUser=user;document.getElementById("signedOut").style.display=user?"none":"block";document.getElementById("signedIn").style.display=user?"block":"none";document.getElementById("userEmail").textContent=user?.email||"";if(user){sync("과거 기록 확인 중…");try{
+ await recoverLegacyHistory(user);
+ await initialPull(user);
+ listen(user);
+ // Safari and an installed iPad PWA can have separate local storage.
+ // Rebuild whichever view is actually open only AFTER Firebase recovery finishes.
+ if(document.getElementById("archiveView").style.display==="block" || document.querySelector(".wrap").style.display==="none"){
+   buildArchive();
+ }else{
+   renderDay(currentKey);
+ }
+ sync("동기화됨",true)
+}catch{sync("오프라인 · 기기에 저장됨")}}else{dayUnsub?.();upUnsub?.();sync("이 기기에 저장됨")}});
 document.getElementById("backupBtn").onclick=async()=>{if(!currentUser)return;const records={};allDays().forEach(x=>records[x.date]=x.data);const id=new Date().toISOString().replace(/[:.]/g,"-");await setDoc(doc(db,"users",currentUser.uid,"daily_priority_backups",id),{records,upcoming:localUpcoming(),deviceCreatedAt:Date.now(),createdAt:serverTimestamp()});msg.textContent="백업했어요."};
 
 renderDay(todayKey());renderUpcoming();
