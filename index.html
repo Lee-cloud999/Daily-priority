@@ -722,7 +722,7 @@ function upRow(x){
  installSwipe(w,()=>{let a=localUpcoming().filter(z=>z.id!==x.id);setLocalUpcoming(a);renderUpcoming();buildArchive();cloudUpcoming(a)});
  return w
 }
-function renderUpcoming(){const box=document.getElementById("upcoming");box.innerHTML="";localUpcoming().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>box.appendChild(upRow(x)))}
+function renderUpcoming(){const box=document.getElementById("upcoming");box.innerHTML="";const today=todayKey();localUpcoming().filter(x=>!x.date||x.date>=today).sort((a,b)=>(a.date||"").localeCompare(b.date||"")).forEach(x=>box.appendChild(upRow(x)))}
 function refreshUpcoming(){renderUpcoming()}
 function saveUpcomingMutation(x){const a=localUpcoming(),i=a.findIndex(z=>z.id===x.id);if(i>=0)a[i]={...x};setLocalUpcoming(a);renderUpcoming();buildArchive();cloudUpcoming(a)}
 let upTimer=null;function cloudUpcoming(a){clearTimeout(upTimer);upTimer=setTimeout(async()=>{
