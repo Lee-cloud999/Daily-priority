@@ -870,7 +870,9 @@ document.addEventListener("dp:viewchange",e=>{
    try{buildArchive()}catch(err){console.warn("archive build",err)}
    setTimeout(()=>{try{buildArchive()}catch(err){}},0);
  }else if(v==="today"){
+   setArchiveReadOnly(false);
    try{renderDay(todayKey())}catch(err){console.warn("today render",err)}
+   setArchiveReadOnly(false);
  }
 });
 
