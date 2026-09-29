@@ -104,6 +104,14 @@
 .swipe-content.done input.text,.swipe-content.done .up-text{
  color:#aaa!important;text-decoration:line-through!important;text-decoration-thickness:1px;
 }
+/* 보관함에서 과거 기록을 열었을 때: 읽기 전용 + 취소선 숨김 */
+#todayView.archive-readonly .swipe-content.done input.text{
+ color:inherit!important;text-decoration:none!important;
+}
+#todayView.archive-readonly input,#todayView.archive-readonly textarea{pointer-events:none;}
+#todayView.archive-readonly .check,#todayView.archive-readonly .section-add,#todayView.archive-readonly .swipe-delete{pointer-events:none;}
+#todayView.archive-readonly .swipe-wrap{transform:none!important;}
+#legacyView.archive-readonly .legacy-row.done .legacy-text{color:inherit!important;text-decoration:none!important;}
 .archive-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;background:#eeeae3;border-radius:12px;padding:4px;margin:14px 0;white-space:nowrap}
 .archive-tab{border:0;border-radius:9px;background:transparent;padding:9px 4px;font-family:inherit;font-size:13px;color:#8c887f;white-space:nowrap;min-width:0}
 .archive-tab.active{background:#fff;color:#292824;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.06)}
@@ -781,6 +789,17 @@ function allDays(){
  ["2026-09-23","2026-09-24","2026-09-25"].forEach(date=>{try{if(anyRecordScore(rawLegacyForDate(date))>0)dates.add(date)}catch(e){}});
  return [...dates].map(date=>archiveDayFromRaw(date,archiveCloudDays.get(date))).filter(Boolean).sort((a,b)=>b.date.localeCompare(a.date));
 }
+function setArchiveReadOnly(on){
+ const today=document.getElementById("todayView"),legacy=document.getElementById("legacyView");
+ today?.classList.toggle("archive-readonly",!!on);
+ legacy?.classList.toggle("archive-readonly",!!on);
+ today?.querySelectorAll("input,textarea").forEach(el=>{el.readOnly=!!on});
+}
+function openArchiveDay(date){
+ renderDay(date);
+ setArchiveReadOnly(true);
+ showToday(false,true);
+}
 function buildArchive(){
  const dates=document.getElementById("archiveDates"),u=document.getElementById("unfinishedList");
  let days=[];
@@ -794,7 +813,7 @@ function buildArchive(){
    return;
  }
  dates.innerHTML=days.length?days.map(({date,data})=>`<div class="archive-record"><div class="archive-record-main"><div class="archive-focus">${esc(data.focus||date)}</div>${data.focus?`<div class="archive-record-date">${date}</div>`:""}</div><button class="archive-open" data-open="${date}">열기</button></div>`).join(""):`<div class="archive-empty">아직 저장된 기록이 없어요.</div>`;
- dates.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{renderDay(b.dataset.open);showToday(false)});
+ dates.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openArchiveDay(b.dataset.open));
  const unfinished=[];days.forEach(({date,data})=>areas.forEach(a=>data[a].forEach(x=>{if(x.state==="undone"&&x.text.trim())unfinished.push({date,area:{house:"집안일",kids:"육아",hobby:"취미",other:"그 외"}[a],text:x.text})})));
  u.innerHTML=unfinished.length?unfinished.map(x=>`<div class="unfinished-row"><span>${x.area}</span><b>${esc(x.text)}</b><span class="unfinished-date">${x.date}</span></div>`).join(""):`<div class="archive-empty">미완료된 할 일이 없어요.</div>`;
  const cs=document.getElementById("completedScheduleList");
@@ -818,12 +837,14 @@ function paintNav(view){
  if(t)t.style.color=view==="today"?"#292824":"#9b978f";
  if(a)a.style.color=view==="archive"?"#292824":"#9b978f";
 }
-function showToday(goToday=true){
+function showToday(goToday=true,keepArchiveReadOnly=false){
  rememberView("today");
  const wrap=document.querySelector(".wrap"),archive=document.getElementById("archiveView");
  if(archive)archive.style.display="none";
  if(wrap)wrap.style.display="block";
+ if(!keepArchiveReadOnly)setArchiveReadOnly(false);
  try{if(goToday)renderDay(todayKey());else renderDay(currentKey)}catch(e){console.warn("today render",e)}
+ if(keepArchiveReadOnly)setArchiveReadOnly(true);
  paintNav("today");window.scrollTo(0,0);
 }
 function showArchive(){
